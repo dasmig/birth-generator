@@ -1,0 +1,196 @@
+cca2	cca3	name	region	subregion	latitude	independent	le_male	le_female	csection_rate
+AF	AFG	Afghanistan	Asia	Southern Asia	33	1	64.5	67.5	0.200
+AL	ALB	Albania	Europe	Southeast Europe	41	1	77.7	81.4	0.300
+DZ	DZA	Algeria	Africa	Northern Africa	28	1	74.9	77.7	0.160
+AD	AND	Andorra	Europe	Southern Europe	42.5	1	82.1	86.1	0.300
+AO	AGO	Angola	Africa	Middle Africa	-12.5	1	62.1	67.1	0.050
+AG	ATG	Antigua and Barbuda	Americas	Caribbean	17.05	1	74.5	80.3	0.350
+AR	ARG	Argentina	Americas	South America	-34	1	74.8	79.9	0.350
+AM	ARM	Armenia	Asia	Western Asia	40	1	71.4	79.5	0.300
+AU	AUS	Australia	Oceania	Australia and New Zealand	-27	1	82.1	85.7	0.340
+AT	AUT	Austria	Europe	Central Europe	47.33333333	1	79.5	84.3	0.300
+AZ	AZE	Azerbaijan	Asia	Western Asia	40.5	1	71.6	77.1	0.250
+BS	BHS	Bahamas	Americas	Caribbean	25.0343	1	70.9	78.2	0.350
+BH	BHR	Bahrain	Asia	Western Asia	26	1	80.7	82.0	0.250
+BD	BGD	Bangladesh	Asia	Southern Asia	24	1	73.0	76.4	0.330
+BB	BRB	Barbados	Americas	Caribbean	13.16666666	1	73.6	78.6	0.350
+BY	BLR	Belarus	Europe	Eastern Europe	53	1	69.5	79.1	0.240
+BE	BEL	Belgium	Europe	Western Europe	50.83333333	1	79.9	84.3	0.210
+BZ	BLZ	Belize	Americas	Central America	17.25	1	70.9	76.5	0.350
+BJ	BEN	Benin	Africa	Western Africa	9.5	1	59.3	62.2	0.030
+BT	BTN	Bhutan	Asia	Southern Asia	27.5	1	71.3	75.0	0.200
+BO	BOL	Bolivia	Americas	South America	-17	1	66.1	71.1	0.430
+BA	BIH	Bosnia and Herzegovina	Europe	Southeast Europe	44	1	74.4	80.9	0.250
+BW	BWA	Botswana	Africa	Southern Africa	-22	1	66.7	71.7	0.200
+BR	BRA	Brazil	Americas	South America	-10	1	72.8	79.0	0.560
+BN	BRN	Brunei	Asia	South-Eastern Asia	4.5	1	73.3	77.6	0.200
+BG	BGR	Bulgaria	Europe	Southeast Europe	43	1	72.2	79.2	0.380
+BF	BFA	Burkina Faso	Africa	Western Africa	13	1	58.9	63.2	0.030
+BI	BDI	Burundi	Africa	Eastern Africa	-3.5	1	61.6	65.7	0.050
+KH	KHM	Cambodia	Asia	South-Eastern Asia	13	1	68.0	73.2	0.200
+CM	CMR	Cameroon	Africa	Middle Africa	6	1	61.5	65.9	0.050
+CA	CAN	Canada	Americas	North America	60	1	80.4	84.8	0.290
+CV	CPV	Cape Verde	Africa	Western Africa	16.5388	1	72.9	79.2	0.030
+CF	CAF	Central African Republic	Africa	Middle Africa	7	1	55.3	59.3	0.050
+TD	TCD	Chad	Africa	Middle Africa	15	1	53.2	57.0	0.050
+CL	CHL	Chile	Americas	South America	-30	1	79.2	83.1	0.470
+CN	CHN	China	Asia	Eastern Asia	35	1	75.2	80.9	0.370
+CO	COL	Colombia	Americas	South America	4	1	75.0	80.5	0.440
+KM	COM	Comoros	Africa	Eastern Africa	-12.16666666	1	64.8	68.9	0.050
+CR	CRI	Costa Rica	Americas	Central America	10	1	78.1	83.4	0.270
+HR	HRV	Croatia	Europe	Southeast Europe	45.16666666	1	75.4	81.7	0.240
+CU	CUB	Cuba	Americas	Caribbean	21.5	1	75.7	80.5	0.370
+CY	CYP	Cyprus	Europe	Southern Europe	35	1	79.6	83.7	0.560
+CZ	CZE	Czechia	Europe	Central Europe	49.75	1	77.0	82.6	0.270
+CD	COD	DR Congo	Africa	Middle Africa	0	1	59.8	64.0	0.050
+DK	DNK	Denmark	Europe	Northern Europe	56	1	80.0	83.9	0.210
+DJ	DJI	Djibouti	Africa	Eastern Africa	11.5	1	63.5	68.5	0.050
+DM	DMA	Dominica	Americas	Caribbean	15.41666666	1	68.2	74.5	0.350
+DO	DOM	Dominican Republic	Americas	Caribbean	19	1	70.5	77.0	0.580
+EC	ECU	Ecuador	Americas	South America	-2	1	74.7	80.1	0.350
+EG	EGY	Egypt	Africa	Northern Africa	27	1	69.5	73.8	0.520
+SV	SLV	El Salvador	Americas	Central America	13.83333333	1	67.5	76.3	0.350
+GQ	GNQ	Equatorial Guinea	Africa	Middle Africa	2	1	62.0	65.7	0.050
+ER	ERI	Eritrea	Africa	Eastern Africa	15	1	66.5	70.7	0.050
+EE	EST	Estonia	Europe	Northern Europe	59	1	74.9	83.0	0.220
+SZ	SWZ	Eswatini	Africa	Southern Africa	-26.5	1	61.2	67.0	0.200
+ET	ETH	Ethiopia	Africa	Eastern Africa	8	1	64.1	70.7	0.050
+FJ	FJI	Fiji	Oceania	Melanesia	-17.7134	1	65.3	69.4	0.100
+FI	FIN	Finland	Europe	Northern Europe	64	1	79.2	84.7	0.170
+FR	FRA	France	Europe	Western Europe	46	1	80.4	86.1	0.210
+GA	GAB	Gabon	Africa	Middle Africa	-1	1	65.9	71.1	0.050
+GM	GMB	Gambia	Africa	Western Africa	13.46666666	1	64.2	67.5	0.030
+GE	GEO	Georgia	Asia	Western Asia	42	1	69.6	79.1	0.470
+DE	DEU	Germany	Europe	Western Europe	51	1	79.0	83.8	0.310
+GH	GHA	Ghana	Africa	Western Africa	8	1	63.1	67.9	0.130
+GR	GRC	Greece	Europe	Southern Europe	39	1	79.3	84.3	0.500
+GD	GRD	Grenada	Americas	Caribbean	12.11666666	1	72.4	78.4	0.350
+GT	GTM	Guatemala	Americas	Central America	15.5	1	70.3	74.9	0.250
+GN	GIN	Guinea	Africa	Western Africa	11	1	59.5	61.9	0.030
+GW	GNB	Guinea-Bissau	Africa	Western Africa	12	1	61.7	66.4	0.030
+GY	GUY	Guyana	Americas	South America	5	1	66.5	73.9	0.430
+HT	HTI	Haiti	Americas	Caribbean	19	1	61.7	68.3	0.350
+HN	HND	Honduras	Americas	Central America	15	1	70.3	75.5	0.350
+HU	HUN	Hungary	Europe	Central Europe	47	1	73.7	80.2	0.370
+IS	ISL	Iceland	Europe	Northern Europe	65	1	81.0	84.5	0.170
+IN	IND	India	Asia	Southern Asia	20	1	70.5	73.6	0.220
+ID	IDN	Indonesia	Asia	South-Eastern Asia	-5	1	69.0	73.3	0.180
+IR	IRN	Iran	Asia	Southern Asia	32	1	75.8	79.6	0.470
+IQ	IRQ	Iraq	Asia	Western Asia	33	1	70.4	74.1	0.300
+IE	IRL	Ireland	Europe	Northern Europe	53	1	80.4	84.5	0.320
+IL	ISR	Israel	Asia	Western Asia	31.47	1	80.2	84.6	0.210
+IT	ITA	Italy	Europe	Southern Europe	42.83333333	1	81.6	85.7	0.350
+CI	CIV	Ivory Coast	Africa	Western Africa	8	1	60.0	64.1	0.030
+JM	JAM	Jamaica	Americas	Caribbean	18.25	1	69.0	74.0	0.250
+JP	JPN	Japan	Asia	Eastern Asia	36	1	81.7	87.7	0.270
+JO	JOR	Jordan	Asia	Western Asia	31	1	75.7	80.2	0.300
+KZ	KAZ	Kazakhstan	Asia	Central Asia	48.0196	1	70.1	78.4	0.200
+KE	KEN	Kenya	Africa	Eastern Africa	1	1	61.5	65.9	0.060
+KI	KIR	Kiribati	Oceania	Micronesia	1.41666666	1	64.6	68.2	0.150
+XK	UNK	Kosovo	Europe	Southeast Europe	42.666667	1			0.150
+KW	KWT	Kuwait	Asia	Western Asia	29.5	1	79.3	81.8	0.240
+KG	KGZ	Kyrgyzstan	Asia	Central Asia	41	1	68.2	75.2	0.200
+LA	LAO	Laos	Asia	South-Eastern Asia	18	1	66.8	71.3	0.200
+LV	LVA	Latvia	Europe	Northern Europe	57	1	71.6	80.5	0.270
+LB	LBN	Lebanon	Asia	Western Asia	33.83333333	1	75.7	79.7	0.420
+LS	LSO	Lesotho	Africa	Southern Africa	-29.5	1	54.6	60.0	0.200
+LR	LBR	Liberia	Africa	Western Africa	6.5	1	60.9	63.4	0.030
+LY	LBY	Libya	Africa	Northern Africa	25	1	68.3	70.4	0.250
+LI	LIE	Liechtenstein	Europe	Western Europe	47.26666666	1	81.8	85.3	0.250
+LT	LTU	Lithuania	Europe	Northern Europe	56	1	71.2	80.7	0.270
+LU	LUX	Luxembourg	Europe	Western Europe	49.75	1	80.6	83.8	0.300
+MG	MDG	Madagascar	Africa	Eastern Africa	-20	1	61.9	65.4	0.050
+MW	MWI	Malawi	Africa	Eastern Africa	-13.5	1	64.1	70.6	0.050
+MY	MYS	Malaysia	Asia	South-Eastern Asia	2.5	1	74.3	79.4	0.250
+MV	MDV	Maldives	Asia	Southern Asia	3.25	1	79.7	82.8	0.200
+ML	MLI	Mali	Africa	Western Africa	17	1	59.0	61.9	0.030
+MT	MLT	Malta	Europe	Southern Europe	35.9375	1	81.3	85.3	0.330
+MH	MHL	Marshall Islands	Oceania	Micronesia	9	1	64.9	69.3	0.150
+MR	MRT	Mauritania	Africa	Western Africa	20	1	66.5	70.5	0.030
+MU	MUS	Mauritius	Africa	Eastern Africa	-20.28333333	1	71.9	78.2	0.050
+MX	MEX	Mexico	Americas	North America	23	1	72.2	77.8	0.460
+FM	FSM	Micronesia	Oceania	Micronesia	6.91666666	1	63.5	71.1	0.150
+MD	MDA	Moldova	Europe	Eastern Europe	47	1	66.6	75.5	0.270
+MC	MCO	Monaco	Europe	Western Europe	43.73333333	1	84.4	88.5	0.250
+MN	MNG	Mongolia	Asia	Eastern Asia	46	1	67.2	76.4	0.220
+ME	MNE	Montenegro	Europe	Southeast Europe	42.5	1	73.7	80.3	0.150
+MA	MAR	Morocco	Africa	Northern Africa	32	1	73.2	77.6	0.220
+MZ	MOZ	Mozambique	Africa	Eastern Africa	-18.25	1	60.3	66.5	0.040
+MM	MMR	Myanmar	Asia	South-Eastern Asia	22	1	63.8	70.2	0.160
+NA	NAM	Namibia	Africa	Southern Africa	-22	1	63.3	71.3	0.200
+NR	NRU	Nauru	Oceania	Micronesia	-0.53333333	1	60.3	64.0	0.150
+NP	NPL	Nepal	Asia	Southern Asia	28	1	68.8	71.8	0.130
+NL	NLD	Netherlands	Europe	Western Europe	52.5	1	80.5	83.7	0.170
+NZ	NZL	New Zealand	Oceania	Australia and New Zealand	-41	1	80.4	83.8	0.270
+NI	NIC	Nicaragua	Americas	Central America	13	1	72.3	77.4	0.350
+NE	NER	Niger	Africa	Western Africa	16	1	60.3	62.1	0.030
+NG	NGA	Nigeria	Africa	Western Africa	10	1	54.2	54.7	0.020
+KP	PRK	North Korea	Asia	Eastern Asia	40	1	71.5	75.7	0.350
+MK	MKD	North Macedonia	Europe	Southeast Europe	41.83333333	1	75.1	79.6	0.280
+NO	NOR	Norway	Europe	Northern Europe	62	1	81.7	84.8	0.170
+OM	OMN	Oman	Asia	Western Asia	21	1	78.5	81.9	0.200
+PK	PAK	Pakistan	Asia	Southern Asia	30	1	65.3	70.2	0.200
+PW	PLW	Palau	Oceania	Micronesia	7.5	1	67.2	71.8	0.150
+PA	PAN	Panama	Americas	Central America	9	1	76.7	82.6	0.300
+PG	PNG	Papua New Guinea	Oceania	Melanesia	-6	1	63.7	69.1	0.100
+PY	PRY	Paraguay	Americas	South America	-23	1	70.9	77.0	0.450
+PE	PER	Peru	Americas	South America	-10	1	75.4	80.1	0.350
+PH	PHL	Philippines	Asia	South-Eastern Asia	13	1	66.9	72.8	0.130
+PL	POL	Poland	Europe	Central Europe	52	1	74.9	82.4	0.370
+PT	PRT	Portugal	Europe	Southern Europe	39.5	1	79.4	85.1	0.360
+QA	QAT	Qatar	Asia	Western Asia	25.5	1	81.6	83.4	0.300
+CG	COG	Republic of the Congo	Africa	Middle Africa	-1	1	64.1	67.5	0.050
+RO	ROU	Romania	Europe	Southeast Europe	46	1	72.4	79.6	0.450
+RU	RUS	Russia	Europe	Eastern Europe	60	1	67.3	79.0	0.230
+RW	RWA	Rwanda	Africa	Eastern Africa	-2	1	65.5	69.9	0.050
+KN	KNA	Saint Kitts and Nevis	Americas	Caribbean	17.33333333	1	68.6	76.0	0.350
+LC	LCA	Saint Lucia	Americas	Caribbean	13.88333333	1	69.3	76.3	0.350
+VC	VCT	Saint Vincent and the Grenadines	Americas	Caribbean	13.25	1	68.7	74.3	0.350
+WS	WSM	Samoa	Oceania	Polynesia	-13.58333333	1	69.9	73.7	0.150
+SM	SMR	San Marino	Europe	Southern Europe	43.76666666	1	84.2	87.1	0.300
+SA	SAU	Saudi Arabia	Asia	Western Asia	25	1	77.1	81.2	0.250
+SN	SEN	Senegal	Africa	Western Africa	14	1	66.8	70.8	0.030
+RS	SRB	Serbia	Europe	Southeast Europe	44	1	73.5	80.0	0.330
+SC	SYC	Seychelles	Africa	Eastern Africa	-4.58333333	1	69.9	76.5	0.050
+SL	SLE	Sierra Leone	Africa	Western Africa	8.5	1	60.1	63.5	0.030
+SG	SGP	Singapore	Asia	South-Eastern Asia	1.36666666	1	81.2	86.2	0.360
+SK	SVK	Slovakia	Europe	Central Europe	48.66666666	1	75.0	81.6	0.300
+SI	SVN	Slovenia	Europe	Central Europe	46.11666666	1	78.9	84.3	0.210
+SB	SLB	Solomon Islands	Oceania	Melanesia	-8	1	69.2	72.0	0.100
+SO	SOM	Somalia	Africa	Eastern Africa	10	1	56.3	61.4	0.050
+ZA	ZAF	South Africa	Africa	Southern Africa	-29	1	62.6	69.6	0.270
+KR	KOR	South Korea	Asia	Eastern Asia	37	1	81.2	87.2	0.450
+SS	SSD	South Sudan	Africa	Middle Africa	7	1	54.6	60.6	0.050
+ES	ESP	Spain	Europe	Southern Europe	40	1	81.0	86.3	0.250
+LK	LKA	Sri Lanka	Asia	Southern Asia	7	1	74.2	80.6	0.320
+SD	SDN	Sudan	Africa	Northern Africa	15	1	63.3	69.6	0.250
+SR	SUR	Suriname	Americas	South America	4	1	70.5	76.8	0.430
+SE	SWE	Sweden	Europe	Northern Europe	62	1	81.4	85.1	0.180
+CH	CHE	Switzerland	Europe	Western Europe	47	1	82.0	85.8	0.330
+SY	SYR	Syria	Asia	Western Asia	35	1	69.8	74.4	0.300
+ST	STP	São Tomé and Príncipe	Africa	Middle Africa	1	1	66.2	73.7	0.050
+TJ	TJK	Tajikistan	Asia	Central Asia	39	1	69.6	74.0	0.200
+TZ	TZA	Tanzania	Africa	Eastern Africa	-6	1	64.2	69.8	0.060
+TH	THA	Thailand	Asia	South-Eastern Asia	15	1	72.2	80.9	0.330
+TL	TLS	Timor-Leste	Asia	South-Eastern Asia	-8.83333333	1	66.1	69.4	0.200
+TG	TGO	Togo	Africa	Western Africa	8	1	62.5	62.9	0.030
+TO	TON	Tonga	Oceania	Polynesia	-20	1	69.4	76.4	0.150
+TT	TTO	Trinidad and Tobago	Americas	Caribbean	10.6918	1	70.4	76.7	0.260
+TN	TUN	Tunisia	Africa	Northern Africa	34	1	73.9	79.1	0.250
+TR	TUR	Turkey	Asia	Western Asia	39	1	74.5	79.9	0.530
+TM	TKM	Turkmenistan	Asia	Central Asia	40	1	66.9	72.8	0.200
+TV	TUV	Tuvalu	Oceania	Polynesia	-8	1	63.8	70.7	0.150
+UG	UGA	Uganda	Africa	Eastern Africa	1	1	65.3	71.1	0.060
+UA	UKR	Ukraine	Europe	Eastern Europe	49	1	66.9	80.2	0.230
+AE	ARE	United Arab Emirates	Asia	Western Asia	24	1	82.0	84.2	0.310
+GB	GBR	United Kingdom	Europe	Northern Europe	54	1	79.4	83.2	0.280
+US	USA	United States	Americas	North America	38	1	76.9	81.8	0.320
+UY	URY	Uruguay	Americas	South America	-33	1	74.2	81.9	0.440
+UZ	UZB	Uzbekistan	Asia	Central Asia	41	1	69.5	75.4	0.120
+VU	VUT	Vanuatu	Oceania	Melanesia	-16	1	69.4	73.9	0.100
+VA	VAT	Vatican City	Europe	Southern Europe	41.9	1			0.300
+VE	VEN	Venezuela	Americas	South America	8	1	68.7	76.5	0.300
+VN	VNM	Vietnam	Asia	South-Eastern Asia	16.16666666	1	69.9	79.3	0.280
+YE	YEM	Yemen	Asia	Western Asia	15	1	67.2	71.4	0.300
+ZM	ZMB	Zambia	Africa	Eastern Africa	-15	1	63.9	68.7	0.050
+ZW	ZWE	Zimbabwe	Africa	Southern Africa	-20	1	60.2	65.0	0.060
