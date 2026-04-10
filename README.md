@@ -11,8 +11,9 @@
 [![C++23](https://img.shields.io/badge/standard-C%2B%2B23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Header-only](https://img.shields.io/badge/type-header--only-green.svg)](https://github.com/dasmig/birth-generator#integration)
 [![Platform](https://img.shields.io/badge/platform-linux%20|%20windows%20|%20macos-lightgrey.svg)](https://github.com/dasmig/birth-generator)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://dasmig.github.io/birth-generator/)
 
-**[Usage Guide](doc/usage.md)** · **[Releases](https://github.com/dasmig/birth-generator/releases)**
+**[API Reference](https://dasmig.github.io/birth-generator/)** · **[Usage Guide](doc/usage.md)** · **[Releases](https://github.com/dasmig/birth-generator/releases)**
 
 ## Features
 
@@ -100,7 +101,7 @@ my_gen.load("path/to/resources/lite");
 auto c = my_gen.get_birth();
 ```
 
-For the complete feature guide see the **[Usage Guide](doc/usage.md)**.
+For the complete feature guide — fields, seeding, weighting, and more — see the **[Usage Guide](doc/usage.md)**.
 
 ## Generation Pipeline
 
