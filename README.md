@@ -74,6 +74,18 @@ std::cout << b.date_string() << " — "
 auto us = bthg::instance().get_birth("US");
 std::cout << "US: " << us << '\n';           // implicit string conversion
 
+// Request a specific sex.
+auto m = bthg::instance().get_birth("BR", dasmig::sex::male);
+
+// Request a specific birth year.
+auto y = bthg::instance().get_birth("JP", dasmig::year_t{1990});
+
+// Request both sex and year.
+auto sy = bthg::instance().get_birth("DE", dasmig::sex::female, dasmig::year_t{1985});
+
+// Request an age range (e.g. adults 18–65).
+auto ar = bthg::instance().get_birth("US", dasmig::age_range{18, 65});
+
 // Access all available fields.
 std::cout << "Sex:      " << (b.bio_sex == dasmig::sex::male ? "M" : "F") << '\n';
 std::cout << "Weekday:  " << +b.weekday << " (0=Sun..6=Sat)" << '\n';
@@ -108,8 +120,8 @@ For the complete feature guide — fields, seeding, weighting, and more — see 
 Each call to `get_birth()` runs this pipeline:
 
 1. **Country** — select from loaded countries (population-weighted or uniform).
-2. **Sex** — male or female, weighted by the country's M:F population ratio.
-3. **Age** — drawn from the country-specific age pyramid (discrete distribution over 0–100).
+2. **Sex** — male or female, weighted by the country's M:F population ratio (or fixed if specified).
+3. **Age** — drawn from the country-specific age pyramid, optionally clamped to a range (or derived from a fixed year).
 4. **Birth year** — `reference_year − age`.
 5. **Month** — drawn from latitude-based seasonal weights.
 6. **Day** — uniform within the month, then rejection-sampled for weekday deficit (weekend births rejected with probability proportional to C-section rate).

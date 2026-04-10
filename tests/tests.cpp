@@ -133,8 +133,8 @@ TEST_CASE("get_birth() returns any valid birth", "[generation]")
 TEST_CASE("get_birth with seed is deterministic", "[generation][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth("BR", 42);
-    auto b2 = gen.get_birth("BR", 42);
+    auto b1 = gen.get_birth("BR", std::uint64_t{42});
+    auto b2 = gen.get_birth("BR", std::uint64_t{42});
 
     REQUIRE(b1.year == b2.year);
     REQUIRE(b1.month == b2.month);
@@ -147,7 +147,7 @@ TEST_CASE("get_birth seed replay", "[generation][seed]")
 {
     auto gen = make_loaded_generator();
     auto b1 = gen.get_birth("JP");
-    auto b2 = gen.get_birth("JP", b1.seed());
+    auto b2 = gen.get_birth("JP", std::uint64_t{b1.seed()});
 
     REQUIRE(b1.year == b2.year);
     REQUIRE(b1.month == b2.month);
@@ -293,7 +293,7 @@ TEST_CASE("cohort labels are correct", "[generation][cohort]")
 TEST_CASE("implicit string conversion returns ISO date", "[conversion]")
 {
     auto gen = make_loaded_generator();
-    auto b = gen.get_birth("US", 42);
+    auto b = gen.get_birth("US", std::uint64_t{42});
     std::string s = b;
     REQUIRE(s == b.date_string());
     REQUIRE(s.size() == 10);
@@ -304,7 +304,7 @@ TEST_CASE("implicit string conversion returns ISO date", "[conversion]")
 TEST_CASE("ostream operator outputs ISO date", "[conversion]")
 {
     auto gen = make_loaded_generator();
-    auto b = gen.get_birth("US", 42);
+    auto b = gen.get_birth("US", std::uint64_t{42});
     std::ostringstream oss;
     oss << b;
     REQUIRE(oss.str() == b.date_string());
@@ -571,4 +571,294 @@ TEST_CASE("life expectancy differs for male vs female", "[generation][le]")
     double avg_female = sum_female_le / females;
     REQUIRE(avg_female > avg_male);
     gen.unseed();
+}
+
+// ===========================================================================
+// Sex-specific generation
+// ===========================================================================
+
+TEST_CASE("get_birth(cca2, sex::male) always returns male", "[generation][sex]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 200; ++i)
+    {
+        auto b = gen.get_birth("US", dasmig::sex::male);
+        REQUIRE(b.bio_sex == dasmig::sex::male);
+        REQUIRE(b.country_code == "US");
+        REQUIRE(b.month >= 1);
+        REQUIRE(b.month <= 12);
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth(cca2, sex::female) always returns female", "[generation][sex]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 200; ++i)
+    {
+        auto b = gen.get_birth("JP", dasmig::sex::female);
+        REQUIRE(b.bio_sex == dasmig::sex::female);
+        REQUIRE(b.country_code == "JP");
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth(cca2, sex, seed) is deterministic", "[generation][sex][seed]")
+{
+    auto gen = make_loaded_generator();
+    auto b1 = gen.get_birth("BR", dasmig::sex::female, std::uint64_t{777});
+    auto b2 = gen.get_birth("BR", dasmig::sex::female, std::uint64_t{777});
+
+    REQUIRE(b1.bio_sex == dasmig::sex::female);
+    REQUIRE(b1.year == b2.year);
+    REQUIRE(b1.month == b2.month);
+    REQUIRE(b1.day == b2.day);
+    REQUIRE(b1.age == b2.age);
+}
+
+TEST_CASE("get_birth(sex) random country with fixed sex", "[generation][sex]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 100; ++i)
+    {
+        auto b = gen.get_birth(dasmig::sex::male);
+        REQUIRE(b.bio_sex == dasmig::sex::male);
+        REQUIRE_FALSE(b.country_code.empty());
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth(sex, seed) is deterministic", "[generation][sex][seed]")
+{
+    auto gen = make_loaded_generator();
+    auto b1 = gen.get_birth(dasmig::sex::female, std::uint64_t{555});
+    auto b2 = gen.get_birth(dasmig::sex::female, std::uint64_t{555});
+
+    REQUIRE(b1.bio_sex == dasmig::sex::female);
+    REQUIRE(b1.country_code == b2.country_code);
+    REQUIRE(b1.year == b2.year);
+    REQUIRE(b1.month == b2.month);
+    REQUIRE(b1.day == b2.day);
+}
+
+// ===========================================================================
+// Year-specific generation
+// ===========================================================================
+
+TEST_CASE("get_birth(cca2, year) fixes the birth year", "[generation][year]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 200; ++i)
+    {
+        auto b = gen.get_birth("US", dasmig::year_t{1990});
+        REQUIRE(b.year == 1990);
+        REQUIRE(b.country_code == "US");
+        REQUIRE(b.month >= 1);
+        REQUIRE(b.month <= 12);
+        REQUIRE(b.day >= 1);
+        REQUIRE(b.day <= 31);
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth(cca2, year) derives correct age", "[generation][year]")
+{
+    auto gen = make_loaded_generator();
+    auto b = gen.get_birth("DE", dasmig::year_t{2000});
+
+    auto now_ymd = std::chrono::year_month_day{
+        std::chrono::floor<std::chrono::days>(
+            std::chrono::system_clock::now())};
+    int expected_age = static_cast<int>(now_ymd.year()) - 2000;
+    // Age should be ref_year - year, capped at 100.
+    REQUIRE(b.age == static_cast<std::uint8_t>(expected_age));
+    REQUIRE(b.year == 2000);
+}
+
+TEST_CASE("get_birth(cca2, year, seed) is deterministic", "[generation][year][seed]")
+{
+    auto gen = make_loaded_generator();
+    auto b1 = gen.get_birth("JP", dasmig::year_t{1985}, std::uint64_t{333});
+    auto b2 = gen.get_birth("JP", dasmig::year_t{1985}, std::uint64_t{333});
+
+    REQUIRE(b1.year == 1985);
+    REQUIRE(b1.month == b2.month);
+    REQUIRE(b1.day == b2.day);
+    REQUIRE(b1.bio_sex == b2.bio_sex);
+}
+
+TEST_CASE("get_birth dates are valid for fixed year", "[generation][year][date]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 300; ++i)
+    {
+        auto b = gen.get_birth("BR", dasmig::year_t{2000});
+        auto ymd = std::chrono::year{static_cast<int>(b.year)} /
+                   std::chrono::month{b.month} /
+                   std::chrono::day{b.day};
+        REQUIRE(ymd.ok());
+    }
+    gen.unseed();
+}
+
+// ===========================================================================
+// Sex + year generation
+// ===========================================================================
+
+TEST_CASE("get_birth(cca2, sex, year) fixes both", "[generation][sex][year]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 200; ++i)
+    {
+        auto b = gen.get_birth("DE", dasmig::sex::female,
+                               dasmig::year_t{1985});
+        REQUIRE(b.bio_sex == dasmig::sex::female);
+        REQUIRE(b.year == 1985);
+        REQUIRE(b.country_code == "DE");
+        REQUIRE(b.month >= 1);
+        REQUIRE(b.month <= 12);
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth(cca2, sex, year, seed) is deterministic", "[generation][sex][year][seed]")
+{
+    auto gen = make_loaded_generator();
+    auto b1 = gen.get_birth("IN", dasmig::sex::male,
+                            dasmig::year_t{1970}, std::uint64_t{111});
+    auto b2 = gen.get_birth("IN", dasmig::sex::male,
+                            dasmig::year_t{1970}, std::uint64_t{111});
+
+    REQUIRE(b1.bio_sex == dasmig::sex::male);
+    REQUIRE(b1.year == 1970);
+    REQUIRE(b1.month == b2.month);
+    REQUIRE(b1.day == b2.day);
+}
+
+TEST_CASE("get_birth(cca2, sex, year) cohort matches year", "[generation][sex][year][cohort]")
+{
+    auto gen = make_loaded_generator();
+
+    auto b1 = gen.get_birth("US", dasmig::sex::male, dasmig::year_t{1950});
+    REQUIRE(b1.cohort == "Baby Boomer");
+
+    auto b2 = gen.get_birth("US", dasmig::sex::female, dasmig::year_t{2005});
+    REQUIRE(b2.cohort == "Generation Z");
+
+    auto b3 = gen.get_birth("US", dasmig::sex::male, dasmig::year_t{2020});
+    REQUIRE(b3.cohort == "Generation Alpha");
+}
+
+// ===========================================================================
+// Age-range generation
+// ===========================================================================
+
+TEST_CASE("get_birth(cca2, age_range) bounds the age", "[generation][age_range]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 500; ++i)
+    {
+        auto b = gen.get_birth("US", dasmig::age_range{18, 65});
+        REQUIRE(b.age >= 18);
+        REQUIRE(b.age <= 65);
+        REQUIRE(b.country_code == "US");
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth age range narrow band", "[generation][age_range]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 100; ++i)
+    {
+        auto b = gen.get_birth("JP", dasmig::age_range{25, 30});
+        REQUIRE(b.age >= 25);
+        REQUIRE(b.age <= 30);
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth(cca2, age_range, seed) is deterministic", "[generation][age_range][seed]")
+{
+    auto gen = make_loaded_generator();
+    auto b1 = gen.get_birth("BR", dasmig::age_range{20, 40},
+                            std::uint64_t{888});
+    auto b2 = gen.get_birth("BR", dasmig::age_range{20, 40},
+                            std::uint64_t{888});
+
+    REQUIRE(b1.age >= 20);
+    REQUIRE(b1.age <= 40);
+    REQUIRE(b1.age == b2.age);
+    REQUIRE(b1.year == b2.year);
+    REQUIRE(b1.month == b2.month);
+    REQUIRE(b1.day == b2.day);
+}
+
+TEST_CASE("get_birth age range dates are valid", "[generation][age_range][date]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 300; ++i)
+    {
+        auto b = gen.get_birth("US", dasmig::age_range{0, 100});
+        auto ymd = std::chrono::year{static_cast<int>(b.year)} /
+                   std::chrono::month{b.month} /
+                   std::chrono::day{b.day};
+        REQUIRE(ymd.ok());
+    }
+    gen.unseed();
+}
+
+TEST_CASE("get_birth age range throws when min > max", "[generation][age_range]")
+{
+    auto gen = make_loaded_generator();
+    REQUIRE_THROWS_AS(
+        gen.get_birth("US", dasmig::age_range{50, 20}),
+        std::invalid_argument);
+}
+
+TEST_CASE("get_birth age range single age", "[generation][age_range]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 50; ++i)
+    {
+        auto b = gen.get_birth("US", dasmig::age_range{30, 30});
+        REQUIRE(b.age == 30);
+    }
+    gen.unseed();
+}
+
+// ===========================================================================
+// Seed round-trip for random-country overload
+// ===========================================================================
+
+TEST_CASE("get_birth() seed round-trip", "[generation][seed]")
+{
+    auto gen = make_loaded_generator();
+    auto b1 = gen.get_birth();
+    auto b2 = gen.get_birth(b1.seed());
+
+    REQUIRE(b1.country_code == b2.country_code);
+    REQUIRE(b1.year == b2.year);
+    REQUIRE(b1.month == b2.month);
+    REQUIRE(b1.day == b2.day);
 }

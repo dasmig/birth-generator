@@ -9,7 +9,14 @@ This guide covers every feature of the birth-generator library in detail. For a 
 <li><a href="#quick-start">Quick Start</a></li>
 <li><a href="#installation">Installation</a></li>
 <li><a href="#loading-resources">Loading Resources</a></li>
-<li><a href="#generating-births">Generating Births</a></li>
+<li><a href="#generating-births">Generating Births</a>
+  <ul>
+  <li><a href="#sex-specific-generation">Sex-Specific Generation</a></li>
+  <li><a href="#year-specific-generation">Year-Specific Generation</a></li>
+  <li><a href="#sex--year-generation">Sex + Year Generation</a></li>
+  <li><a href="#age-range-generation">Age-Range Generation</a></li>
+  </ul>
+</li>
 <li><a href="#birth-fields">Birth Fields</a></li>
 <li><a href="#country-specific-generation">Country-Specific Generation</a></li>
 <li><a href="#population-weighting">Population Weighting</a></li>
@@ -41,6 +48,18 @@ int main()
     // Country-specific birth.
     auto jp = gen.get_birth("JP");
     std::cout << "Japan: " << jp << " (age " << +jp.age << ")\n";
+
+    // Sex-specific birth.
+    auto m = gen.get_birth("BR", dasmig::sex::male);
+    std::cout << "Male from Brazil: " << m << "\n";
+
+    // Year-specific birth.
+    auto y = gen.get_birth("DE", dasmig::year_t{1990});
+    std::cout << "Born in 1990: " << y << "\n";
+
+    // Age-range birth.
+    auto adult = gen.get_birth("US", dasmig::age_range{18, 65});
+    std::cout << "Adult: " << adult << " (age " << +adult.age << ")\n";
 }
 ```
 
@@ -106,10 +125,68 @@ auto b = gen.get_birth();
 auto us = gen.get_birth("US");
 
 // Seeded (deterministic) birth.
-auto det = gen.get_birth(42);
+auto det = gen.get_birth(std::uint64_t{42});
 ```
 
-If the country code is not found (e.g., `"XX"`), `get_birth()` throws `std::runtime_error`.
+If the country code is not found (e.g., `"XX"`), `get_birth()` throws `std::invalid_argument`.
+
+### Sex-specific generation
+
+Fix the biological sex instead of drawing it from the M:F ratio:
+
+```cpp
+auto m = gen.get_birth("BR", dasmig::sex::male);   // always male
+auto f = gen.get_birth("US", dasmig::sex::female);  // always female
+
+// Random country, fixed sex.
+auto r = gen.get_birth(dasmig::sex::male);
+
+// Deterministic variant.
+auto d = gen.get_birth("JP", dasmig::sex::female, std::uint64_t{42});
+```
+
+### Year-specific generation
+
+Fix the birth year instead of drawing from the age pyramid.  Age is
+derived as `ref_year − year` and clamped to [0, 100]:
+
+```cpp
+auto b = gen.get_birth("DE", dasmig::year_t{1990});
+
+// Deterministic variant.
+auto d = gen.get_birth("JP", dasmig::year_t{1985}, std::uint64_t{42});
+```
+
+### Sex + year generation
+
+Fix both sex and year — only month, day, weekday, LE, and cohort are
+randomised:
+
+```cpp
+auto b = gen.get_birth("US", dasmig::sex::female, dasmig::year_t{1985});
+
+// Deterministic variant.
+auto d = gen.get_birth("IN", dasmig::sex::male,
+                       dasmig::year_t{1970}, std::uint64_t{42});
+```
+
+### Age-range generation
+
+Constrain the age to an inclusive range.  The age is rejection-sampled
+from the country's age pyramid within the bounds:
+
+```cpp
+// Adults only.
+auto adult = gen.get_birth("US", dasmig::age_range{18, 65});
+
+// Narrow band.
+auto young = gen.get_birth("JP", dasmig::age_range{25, 30});
+
+// Deterministic variant.
+auto d = gen.get_birth("BR", dasmig::age_range{20, 40}, std::uint64_t{42});
+```
+
+Throws `std::invalid_argument` if `min > max`.
 
 ## Birth Fields
 
@@ -188,8 +265,8 @@ gen.weighted(true);         // restore population-weighted
 ### Per-call seeding
 
 ```cpp
-auto b = gen.get_birth(42);       // deterministic
-auto b2 = gen.get_birth(42);      // identical to b
+auto b = gen.get_birth(std::uint64_t{42});   // deterministic
+auto b2 = gen.get_birth(std::uint64_t{42});  // identical to b
 ```
 
 ### Replay via birth seed
@@ -197,8 +274,8 @@ auto b2 = gen.get_birth(42);      // identical to b
 Every birth stores the random seed used to generate it:
 
 ```cpp
-auto b = gen.get_birth();          // random
-auto replay = gen.get_birth(b.seed());  // exact same birth
+auto b = gen.get_birth();                             // random
+auto replay = gen.get_birth(std::uint64_t{b.seed()}); // exact same birth
 ```
 
 ### Generator-level seeding
@@ -236,9 +313,9 @@ Useful when embedding inside other generators or when different threads need ind
 Each `get_birth()` call runs the following pipeline:
 
 1. **Country selection** — population-weighted or uniform from loaded entries.
-2. **Biological sex** — Bernoulli trial weighted by the country's male:female population ratio.
-3. **Age** — drawn from a discrete distribution over 0–100, shaped by the country's age pyramid.
-4. **Birth year** — `reference_year − age` (reference year = 2024).
+2. **Biological sex** — Bernoulli trial weighted by the country's male:female population ratio (or fixed if a `sex` parameter is provided).
+3. **Age** — drawn from a discrete distribution over 0–100, shaped by the country's age pyramid (or derived from a fixed `year_t`, or rejection-sampled within an `age_range`).
+4. **Birth year** — `reference_year − age` (reference year = current year).
 5. **Birth month** — drawn from 12 seasonal weights derived from the country's latitude (sinusoidal model: NH peaks in September, SH peaks in March).
 6. **Birth day** — uniform within the month's valid range, then rejection-sampled for weekday deficit: if the candidate day falls on a weekend, it is rejected with probability `csection_rate × 0.5` (up to 3 retries).
 7. **Weekday** — computed via `std::chrono::weekday` from the final date.
@@ -288,5 +365,6 @@ The singleton `bthg::instance()` returns a single shared instance, so concurrent
 
 | Error | Cause |
 |-------|-------|
-| `std::runtime_error("bthg: no data loaded")` | Called `get_birth()` before any `load()` and auto-probe found nothing. |
-| `std::runtime_error("bthg: country code not found: XX")` | The country code passed to `get_birth("XX")` is not in the loaded dataset. |
+| `std::runtime_error("No birth data loaded. Call load() first.")` | Called `get_birth()` before any `load()` and auto-probe found nothing. |
+| `std::invalid_argument("Unknown country code: XX")` | The country code passed to `get_birth("XX")` is not in the loaded dataset. |
+| `std::invalid_argument("age_range: min must be <= max")` | Passed an `age_range` where `min > max`. |

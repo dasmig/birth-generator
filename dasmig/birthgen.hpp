@@ -44,6 +44,23 @@ enum class sex : std::uint8_t
     female
 };
 
+/// @brief Strong type for specifying a birth year.
+///
+/// Wraps a plain integer to prevent overload ambiguity with seed
+/// parameters.  Must be constructed explicitly: `year_t{1990}`.
+struct year_t
+{
+    std::uint16_t value;
+    constexpr explicit year_t(std::uint16_t v) noexcept : value{v} {}
+};
+
+/// @brief Specifies an inclusive age range [min, max].
+struct age_range
+{
+    std::uint8_t min;
+    std::uint8_t max;
+};
+
 /// @brief Return type for birth generation, holding all data fields.
 ///
 /// Supports implicit conversion to std::string (returns ISO date)
@@ -136,25 +153,14 @@ class bthg
     /// @throws std::invalid_argument If the country code is unknown.
     [[nodiscard]] birth get_birth(std::string_view cca2)
     {
-        return get_birth(cca2, draw_seed_());
+        return generate_(lookup_entry_(cca2), draw_seed_(), {});
     }
 
     /// @brief Generate a deterministic birth for a specific country.
     [[nodiscard]] birth get_birth(std::string_view cca2,
                                   std::uint64_t call_seed) const
     {
-        if (_entries.empty())
-        {
-            throw std::runtime_error(
-                "No birth data loaded. Call load() first.");
-        }
-        auto it = _entries.find(std::string{cca2});
-        if (it == _entries.end())
-        {
-            throw std::invalid_argument(
-                std::string{"Unknown country code: "} += cca2);
-        }
-        return generate_(it->second, call_seed);
+        return generate_(lookup_entry_(cca2), call_seed, {});
     }
 
     /// @brief Generate a random birth from a random country.
@@ -180,6 +186,144 @@ class bthg
                        ? _country_dist(rng.engine())
                        : _country_uniform(rng.engine());
         return get_birth(_cca2_order[idx], call_seed); // NOLINT
+    }
+
+    // -- Sex-specific generation ------------------------------------------
+
+    /// @brief Generate a random birth with a predetermined sex.
+    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex)
+    {
+        return generate_(lookup_entry_(cca2), draw_seed_(),
+                         {.fix_sex = true, .forced_sex = bio_sex});
+    }
+
+    /// @brief Generate a deterministic birth with a predetermined sex.
+    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
+                                  std::uint64_t call_seed) const
+    {
+        return generate_(lookup_entry_(cca2), call_seed,
+                         {.fix_sex = true, .forced_sex = bio_sex});
+    }
+
+    /// @brief Generate a random birth from a random country with a
+    ///        predetermined sex.
+    [[nodiscard]] birth get_birth(sex bio_sex)
+    {
+        auto seed = draw_seed_();
+        if (_entries.empty())
+        {
+            throw std::runtime_error(
+                "No birth data loaded. Call load() first.");
+        }
+        effolkronium::random_local rng;
+        rng.seed(static_cast<std::mt19937::result_type>(
+            seed ^ (seed >> seed_shift_)));
+        auto idx = _weighted
+                       ? _country_dist(rng.engine())
+                       : _country_uniform(rng.engine());
+        return generate_(lookup_entry_(_cca2_order[idx]), seed, // NOLINT
+                         {.fix_sex = true, .forced_sex = bio_sex});
+    }
+
+    /// @brief Generate a deterministic birth from a random country with a
+    ///        predetermined sex.
+    [[nodiscard]] birth get_birth(sex bio_sex,
+                                  std::uint64_t call_seed) const
+    {
+        if (_entries.empty())
+        {
+            throw std::runtime_error(
+                "No birth data loaded. Call load() first.");
+        }
+        effolkronium::random_local rng;
+        rng.seed(static_cast<std::mt19937::result_type>(
+            call_seed ^ (call_seed >> seed_shift_)));
+
+        auto idx = _weighted
+                       ? _country_dist(rng.engine())
+                       : _country_uniform(rng.engine());
+        return get_birth(_cca2_order[idx], bio_sex, call_seed); // NOLINT
+    }
+
+    // -- Year-specific generation -----------------------------------------
+
+    /// @brief Generate a random birth for a specific year.
+    /// @param cca2 ISO 3166-1 alpha-2 country code.
+    /// @param year Birth year (e.g. `year_t{1990}`).  Age is derived as
+    ///        ref_year − year and clamped to [0, 100].
+    [[nodiscard]] birth get_birth(std::string_view cca2, year_t year)
+    {
+        return generate_(lookup_entry_(cca2), draw_seed_(),
+                         {.fix_year = true, .forced_year = year.value});
+    }
+
+    /// @brief Generate a deterministic birth for a specific year.
+    [[nodiscard]] birth get_birth(std::string_view cca2, year_t year,
+                                  std::uint64_t call_seed) const
+    {
+        return generate_(lookup_entry_(cca2), call_seed,
+                         {.fix_year = true, .forced_year = year.value});
+    }
+
+    // -- Sex + year generation --------------------------------------------
+
+    /// @brief Generate a random birth with predetermined sex and year.
+    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
+                                  year_t year)
+    {
+        return generate_(lookup_entry_(cca2), draw_seed_(),
+                         {.fix_sex = true, .forced_sex = bio_sex,
+                          .fix_year = true, .forced_year = year.value});
+    }
+
+    /// @brief Generate a deterministic birth with predetermined sex and
+    ///        year.
+    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
+                                  year_t year,
+                                  std::uint64_t call_seed) const
+    {
+        return generate_(lookup_entry_(cca2), call_seed,
+                         {.fix_sex = true, .forced_sex = bio_sex,
+                          .fix_year = true, .forced_year = year.value});
+    }
+
+    // -- Age-range generation ---------------------------------------------
+
+    /// @brief Generate a random birth with age within [range.min,
+    ///        range.max].
+    /// @throws std::invalid_argument If range.min > range.max.
+    [[nodiscard]] birth get_birth(std::string_view cca2, age_range range)
+    {
+        if (range.min > range.max)
+        {
+            throw std::invalid_argument(
+                "age_range: min must be <= max");
+        }
+        return generate_(lookup_entry_(cca2), draw_seed_(),
+                         {.fix_age_range = true,
+                          .age_min = range.min,
+                          .age_max = std::min<std::uint8_t>(
+                              range.max,
+                              static_cast<std::uint8_t>(max_age_))});
+    }
+
+    /// @brief Generate a deterministic birth with age within
+    ///        [range.min, range.max].
+    [[nodiscard]] birth get_birth(std::string_view cca2,
+                                  age_range range,
+                                  std::uint64_t call_seed) const
+    {
+        if (range.min > range.max)
+        {
+            throw std::invalid_argument(
+                "age_range: min must be <= max");
+        }
+        return generate_(lookup_entry_(cca2), call_seed,
+                         {.fix_age_range = true,
+                          .age_min = range.min,
+                          .age_max = std::min<std::uint8_t>(
+                              range.max,
+                              static_cast<std::uint8_t>(max_age_))});
     }
 
     // -- Seeding ----------------------------------------------------------
@@ -336,9 +480,41 @@ class bthg
         return static_cast<std::uint64_t>(_engine());
     }
 
+    [[nodiscard]] const entry& lookup_entry_(
+        std::string_view cca2) const
+    {
+        if (_entries.empty())
+        {
+            throw std::runtime_error(
+                "No birth data loaded. Call load() first.");
+        }
+        auto it = _entries.find(std::string{cca2});
+        if (it == _entries.end())
+        {
+            throw std::invalid_argument(
+                std::string{"Unknown country code: "} += cca2);
+        }
+        return it->second;
+    }
+
+    // Optional constraints passed to generate_().
+    struct gen_opts_
+    {
+        bool fix_sex{false};
+        sex forced_sex{sex::male};
+
+        bool fix_year{false};
+        std::uint16_t forced_year{0};
+
+        bool fix_age_range{false};
+        std::uint8_t age_min{0};
+        std::uint8_t age_max{100};
+    };
+
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     [[nodiscard]] birth generate_(const entry& e,
-                                  std::uint64_t call_seed) const
+                                  std::uint64_t call_seed,
+                                  const gen_opts_& opts) const
     {
         effolkronium::random_local rng;
         rng.seed(static_cast<std::mt19937::result_type>(
@@ -348,25 +524,61 @@ class bthg
         b._seed = call_seed;
         b.country_code = e.cca2;
 
-        // 1. Sex — weighted by total male:female population.
-        const double total = e.total_male + e.total_female;
-        const double male_prob = (total > 0) ? (e.total_male / total) : 0.5;
-        std::bernoulli_distribution sex_dist(1.0 - male_prob);
-        b.bio_sex = sex_dist(rng.engine()) ? sex::female : sex::male;
+        // 1. Sex — fixed or weighted by total male:female population.
+        if (opts.fix_sex)
+        {
+            b.bio_sex = opts.forced_sex;
+        }
+        else
+        {
+            const double total = e.total_male + e.total_female;
+            const double male_prob =
+                (total > 0) ? (e.total_male / total) : 0.5;
+            std::bernoulli_distribution sex_dist(1.0 - male_prob);
+            b.bio_sex = sex_dist(rng.engine()) ? sex::female : sex::male;
+        }
 
-        // 2. Age — from country-specific age pyramid.
-        b.age = (b.bio_sex == sex::male)
-                    ? e.male_age_dist(rng.engine())
-                    : e.female_age_dist(rng.engine());
+        // 2. Age / year.
+        if (opts.fix_year)
+        {
+            b.year = opts.forced_year;
+            const int age = _ref_year - static_cast<int>(b.year);
+            b.age = static_cast<std::uint8_t>(
+                std::clamp(age, 0, static_cast<int>(max_age_)));
+        }
+        else if (opts.fix_age_range)
+        {
+            // Rejection-sample within [age_min, age_max].
+            static constexpr unsigned max_rejection_tries_{200};
+            unsigned raw = (b.bio_sex == sex::male)
+                               ? e.male_age_dist(rng.engine())
+                               : e.female_age_dist(rng.engine());
+            for (unsigned r = 0; r < max_rejection_tries_; ++r)
+            {
+                if (raw >= opts.age_min && raw <= opts.age_max) break;
+                raw = (b.bio_sex == sex::male)
+                          ? e.male_age_dist(rng.engine())
+                          : e.female_age_dist(rng.engine());
+            }
+            // Clamp as fallback if rejection sampling exhausted.
+            b.age = static_cast<std::uint8_t>(
+                std::clamp(raw, static_cast<unsigned>(opts.age_min),
+                           static_cast<unsigned>(opts.age_max)));
+            b.year = static_cast<std::uint16_t>(_ref_year - b.age);
+        }
+        else
+        {
+            b.age = (b.bio_sex == sex::male)
+                        ? e.male_age_dist(rng.engine())
+                        : e.female_age_dist(rng.engine());
+            b.year = static_cast<std::uint16_t>(_ref_year - b.age);
+        }
 
-        // 3. Birth year.
-        b.year = static_cast<std::uint16_t>(_ref_year - b.age);
-
-        // 4. Month — from seasonal weights.
+        // 3. Month — from seasonal weights.
         b.month = static_cast<std::uint8_t>(
             e.month_dist(rng.engine()) + 1);
 
-        // 5. Day within month.
+        // 4. Day within month.
         auto yr = std::chrono::year{static_cast<int>(b.year)};
         auto mo = std::chrono::month{b.month};
         auto last_day = static_cast<unsigned>(
@@ -376,7 +588,6 @@ class bthg
 
         // Apply weekday deficit: weekend births are less likely in
         // countries with high C-section / scheduled delivery rates.
-        // Max rejection probability ~30% at csection_rate ≈ 0.6.
         static constexpr unsigned max_weekday_retries_{3};
         static constexpr double weekday_deficit_scale_{0.5};
         b.day = static_cast<std::uint8_t>(day_dist(rng.engine()));
@@ -404,21 +615,21 @@ class bthg
             break;
         }
 
-        // 6. Weekday of final date.
+        // 5. Weekday of final date.
         b.weekday = static_cast<std::uint8_t>(
             final_wd.c_encoding()); // 0=Sun..6=Sat
 
-        // 7. Life expectancy remaining.
+        // 6. Life expectancy remaining.
         const double le = (b.bio_sex == sex::male) ? e.le_male : e.le_female;
         b.le_remaining = std::max(0.0, le - static_cast<double>(b.age));
 
-        // 8. Generational cohort.
-        b.cohort = cohort_label_(b.year);
+        // 7. Generational cohort.
+        b.cohort = std::string{cohort_label_(b.year)};
 
         return b;
     }
 
-    static std::string cohort_label_(int year)
+    static std::string_view cohort_label_(int year)
     {
         if (year <= 1927) return "Greatest Generation";
         if (year <= 1945) return "Silent Generation";
