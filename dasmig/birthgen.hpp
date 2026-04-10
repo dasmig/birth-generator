@@ -134,13 +134,13 @@ class bthg
     /// @param cca2 ISO 3166-1 alpha-2 country code (e.g. "US", "BR").
     /// @throws std::runtime_error If no data has been loaded.
     /// @throws std::invalid_argument If the country code is unknown.
-    [[nodiscard]] birth get_birth(const std::string& cca2)
+    [[nodiscard]] birth get_birth(std::string_view cca2)
     {
         return get_birth(cca2, draw_seed_());
     }
 
     /// @brief Generate a deterministic birth for a specific country.
-    [[nodiscard]] birth get_birth(const std::string& cca2,
+    [[nodiscard]] birth get_birth(std::string_view cca2,
                                   std::uint64_t call_seed) const
     {
         if (_entries.empty())
@@ -148,11 +148,11 @@ class bthg
             throw std::runtime_error(
                 "No birth data loaded. Call load() first.");
         }
-        auto it = _entries.find(cca2);
+        auto it = _entries.find(std::string{cca2});
         if (it == _entries.end())
         {
             throw std::invalid_argument(
-                "Unknown country code: " + cca2);
+                std::string{"Unknown country code: "} += cca2);
         }
         return generate_(it->second, call_seed);
     }
@@ -381,13 +381,14 @@ class bthg
         static constexpr double weekday_deficit_scale_{0.5};
         b.day = static_cast<std::uint8_t>(day_dist(rng.engine()));
 
+        std::chrono::weekday final_wd{};
         for (unsigned attempt = 0; attempt < max_weekday_retries_;
              ++attempt)
         {
             auto ymd = yr / mo / std::chrono::day{b.day};
-            auto wd = std::chrono::weekday{
+            final_wd = std::chrono::weekday{
                 std::chrono::sys_days{ymd}};
-            const unsigned iso = wd.iso_encoding(); // 1=Mon..7=Sun
+            const unsigned iso = final_wd.iso_encoding(); // 1=Mon..7=Sun
             if (iso >= 6) // Saturday or Sunday
             {
                 const double reject_p =
@@ -404,13 +405,8 @@ class bthg
         }
 
         // 6. Weekday of final date.
-        {
-            auto ymd = yr / mo / std::chrono::day{b.day};
-            auto wd = std::chrono::weekday{
-                std::chrono::sys_days{ymd}};
-            b.weekday = static_cast<std::uint8_t>(
-                wd.c_encoding()); // 0=Sun..6=Sat
-        }
+        b.weekday = static_cast<std::uint8_t>(
+            final_wd.c_encoding()); // 0=Sun..6=Sat
 
         // 7. Life expectancy remaining.
         const double le = (b.bio_sex == sex::male) ? e.le_male : e.le_female;
@@ -449,6 +445,7 @@ class bthg
     static std::vector<std::string> split_tab_(const std::string& line)
     {
         std::vector<std::string> fields;
+        fields.reserve(16);
         for (auto part : line | std::views::split('\t'))
         {
             fields.emplace_back(std::ranges::begin(part),
@@ -489,7 +486,7 @@ class bthg
             e.le_female = parse_double_(f[8]);
             e.csection_rate = parse_double_(f[9]);
 
-            auto key = e.cca2;
+            std::string key{e.cca2};
             _entries.insert_or_assign(std::move(key), std::move(e));
         }
     }

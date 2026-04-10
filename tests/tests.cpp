@@ -432,3 +432,143 @@ TEST_CASE("life expectancy remaining is non-negative", "[generation][le]")
     }
     gen.unseed();
 }
+
+// ---------------------------------------------------------------------------
+// Weekday correctness
+// ---------------------------------------------------------------------------
+
+TEST_CASE("weekday field matches the actual calendar date", "[generation][weekday]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 500; ++i)
+    {
+        auto b = gen.get_birth("US");
+        auto ymd = std::chrono::year{static_cast<int>(b.year)} /
+                   std::chrono::month{b.month} /
+                   std::chrono::day{b.day};
+        auto wd = std::chrono::weekday{std::chrono::sys_days{ymd}};
+        REQUIRE(b.weekday == wd.c_encoding());
+    }
+    gen.unseed();
+}
+
+// ---------------------------------------------------------------------------
+// Month distribution (seasonality)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("month distribution is non-degenerate", "[generation][month]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    std::array<int, 12> month_counts{};
+    for (int i = 0; i < 3000; ++i)
+    {
+        auto b = gen.get_birth("US");
+        ++month_counts[b.month - 1];
+    }
+
+    // Every month should appear at least once.
+    for (int m = 0; m < 12; ++m)
+    {
+        REQUIRE(month_counts[m] > 50);
+    }
+    gen.unseed();
+}
+
+// ---------------------------------------------------------------------------
+// Random country with seed is deterministic
+// ---------------------------------------------------------------------------
+
+TEST_CASE("get_birth(seed) selects same country deterministically", "[generation][seed]")
+{
+    auto gen = make_loaded_generator();
+    auto b1 = gen.get_birth(std::uint64_t{9999});
+    auto b2 = gen.get_birth(std::uint64_t{9999});
+
+    REQUIRE(b1.country_code == b2.country_code);
+    REQUIRE(b1.year == b2.year);
+    REQUIRE(b1.month == b2.month);
+    REQUIRE(b1.day == b2.day);
+    REQUIRE(b1.bio_sex == b2.bio_sex);
+}
+
+// ---------------------------------------------------------------------------
+// date_string format
+// ---------------------------------------------------------------------------
+
+TEST_CASE("date_string produces valid ISO 8601 format", "[conversion]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    for (int i = 0; i < 100; ++i)
+    {
+        auto b = gen.get_birth("US");
+        auto ds = b.date_string();
+
+        REQUIRE(ds.size() == 10);
+        // Check digit pattern: DDDD-DD-DD
+        for (int pos : {0, 1, 2, 3})
+            REQUIRE(std::isdigit(static_cast<unsigned char>(ds[pos])));
+        REQUIRE(ds[4] == '-');
+        for (int pos : {5, 6})
+            REQUIRE(std::isdigit(static_cast<unsigned char>(ds[pos])));
+        REQUIRE(ds[7] == '-');
+        for (int pos : {8, 9})
+            REQUIRE(std::isdigit(static_cast<unsigned char>(ds[pos])));
+    }
+    gen.unseed();
+}
+
+// ---------------------------------------------------------------------------
+// has_data after load
+// ---------------------------------------------------------------------------
+
+TEST_CASE("has_data returns true after successful load", "[loading]")
+{
+    auto gen = make_loaded_generator();
+    REQUIRE(gen.has_data());
+    REQUIRE(gen.country_count() > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Life expectancy differs by sex
+// ---------------------------------------------------------------------------
+
+TEST_CASE("life expectancy differs for male vs female", "[generation][le]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    double sum_male_le = 0;
+    double sum_female_le = 0;
+    int males = 0;
+    int females = 0;
+
+    for (int i = 0; i < 1000; ++i)
+    {
+        auto b = gen.get_birth("JP");
+        if (b.bio_sex == dasmig::sex::male)
+        {
+            sum_male_le += b.le_remaining;
+            ++males;
+        }
+        else
+        {
+            sum_female_le += b.le_remaining;
+            ++females;
+        }
+    }
+
+    REQUIRE(males > 100);
+    REQUIRE(females > 100);
+
+    // Female life expectancy is typically higher.
+    double avg_male = sum_male_le / males;
+    double avg_female = sum_female_le / females;
+    REQUIRE(avg_female > avg_male);
+    gen.unseed();
+}
