@@ -31,18 +31,24 @@ namespace dasmig
 {
 
 /// @brief Dataset size tier for resource loading.
+#ifndef DASMIG_DATASET_DEFINED
+#define DASMIG_DATASET_DEFINED
 enum class dataset : std::uint8_t
 {
     lite, ///< ~195 sovereign states only.
     full  ///< ~237 countries and territories (UN WPP coverage).
 };
+#endif
 
 /// @brief Biological sex for birth generation.
+#ifndef DASMIG_SEX_DEFINED
+#define DASMIG_SEX_DEFINED
 enum class sex : std::uint8_t
 {
     male,
     female
 };
+#endif
 
 /// @brief Strong type for specifying a birth year.
 ///
