@@ -2,9 +2,9 @@
 # Run: doxygen Doxyfile
 
 PROJECT_NAME           = "Birth Generator"
-PROJECT_NUMBER         = 1.0.0
+PROJECT_NUMBER         = 1.1.0
 PROJECT_BRIEF          = "Procedural birth date generation for C++23"
-PROJECT_LOGO           =
+PROJECT_LOGO           = doc/birth-generator.png
 
 OUTPUT_DIRECTORY       = doc/api
 CREATE_SUBDIRS         = NO
@@ -58,3 +58,7 @@ TOC_INCLUDE_HEADINGS   = 3
 GENERATE_LATEX         = NO
 GENERATE_MAN           = NO
 GENERATE_XML           = NO
+
+# --- Graphs ----------------------------------------------------------------
+
+HAVE_DOT               = NO
