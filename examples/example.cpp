@@ -89,10 +89,42 @@ int main()
     std::cout << "\nAge-range (adults 18-65):\n";
     for (int i = 0; i < 5; ++i)
     {
-        auto ar = gen.get_birth("US", dasmig::age_range{18, 65});
+        auto ar = gen.get_birth("US", dasmig::age_range{.min = 18, .max = 65});
         std::cout << "  " << ar.date_string()
                   << "  age=" << static_cast<int>(ar.age) << "\n";
     }
+
+    // Ages are relative to a fixed reference date, not the clock.
+    std::cout << "\nReference date: "
+              << static_cast<int>(gen.reference_date().year()) << '-'
+              << static_cast<unsigned>(gen.reference_date().month()) << '-'
+              << static_cast<unsigned>(gen.reference_date().day()) << "\n";
+
+    // JSON with the replay signature (seed and data hash).
+    std::cout << "\nJSON:\n  " << gen.get_birth("BR", std::uint64_t{7}).to_json() << "\n";
+
+    // Extend the data: a country whose people are all 30, born in May.
+    std::string pyramid = "cca2";
+    std::string pyramid_row = "QQ";
+    for (const char s : {'m', 'f'})
+    {
+        for (int a = 0; a <= 100; ++a)
+        {
+            pyramid += "\t" + std::string(1, s) + std::to_string(a);
+            pyramid_row += a == 30 ? "\t100" : "\t0";
+        }
+    }
+    gen.extend_from_string(dasmig::bthg::table::countries,
+                           "cca2\tname\tle_male\tle_female\tcsection_rate\n"
+                           "QQ\tAtlantis\t81\t85\t0.2\n",
+                           "atlantis countries");
+    gen.extend_from_string(dasmig::bthg::table::age_pyramid, pyramid + "\n" + pyramid_row + "\n",
+                           "atlantis pyramid");
+    gen.extend_from_string(dasmig::bthg::table::monthly_births,
+                           "cca2\tjan\tfeb\tmar\tapr\tmay\tjun\tjul\taug\tsep\toct\tnov\tdec\n"
+                           "QQ\t0\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\n",
+                           "atlantis months");
+    std::cout << "\nAtlantis: " << gen.get_birth("QQ").to_json() << "\n";
 
     return 0;
 }

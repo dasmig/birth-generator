@@ -25,6 +25,11 @@ This guide covers every feature of the birth-generator library in detail. For a 
 <li><a href="#multi-instance-support">Multi-Instance Support</a></li>
 <li><a href="#generation-pipeline">Generation Pipeline</a></li>
 <li><a href="#data-pipeline">Data Pipeline</a></li>
+<li><a href="#reference-date">Reference Date</a></li>
+<li><a href="#extending-data">Extending Data</a></li>
+<li><a href="#replay-and-json">Replay and JSON</a></li>
+<li><a href="#compiled-in-data">Compiled-in Data</a></li>
+<li><a href="#migrating-from-v1">Migrating from v1</a></li>
 <li><a href="#thread-safety">Thread Safety</a></li>
 <li><a href="#error-reference">Error Reference</a></li>
 </ul>
@@ -65,7 +70,7 @@ int main()
 
 ## Installation
 
-1. Copy `dasmig/birthgen.hpp` and `dasmig/random.hpp` into your include path.
+1. Copy `dasmig/birthgen.hpp`, `dasmig/core.hpp` and the `dasmig/core/` directory into your include path, keeping them side by side.
 2. Copy the `resources/` folder (containing `full/` and/or `lite/` subdirectories with their three TSV files) so it is accessible at runtime.
 3. Compile with C++23 enabled: `-std=c++23`.
 
@@ -75,8 +80,8 @@ The library ships two dataset tiers:
 
 | Tier | Enum | Countries | Description |
 |------|------|-----------|-------------|
-| lite | `dasmig::dataset::lite` | ~195 | Sovereign states only |
-| full | `dasmig::dataset::full` | ~235 | All countries and territories (UN WPP coverage) |
+| lite | `dasmig::dataset::lite` | 193 | Sovereign states with UN age data |
+| full | `dasmig::dataset::full` | 235 | All countries and territories with UN age data |
 
 Each tier stores three TSV files:
 
@@ -88,15 +93,14 @@ Each tier stores three TSV files:
 
 ### Automatic loading (singleton)
 
-On first access the singleton constructor probes these base paths:
+On first access the singleton loads the `lite` tier (or `full` if `lite` is missing). It uses the compiled-in copy when built with `DASMIG_BIRTH_EMBED` (see Compiled-in Data), and otherwise looks for `lite/countries.tsv` in these directories, relative to the working directory:
 
 | Priority | Base path |
 |----------|-----------|
 | 1 | `resources/` |
 | 2 | `../resources/` |
 | 3 | `birth-generator/resources/` |
-
-It loads `lite/` if found, otherwise falls back to `full/`.
+| 4 | `../birth-generator/resources/` |
 
 ### Explicit tier loading
 
@@ -147,8 +151,9 @@ auto d = gen.get_birth("JP", dasmig::sex::female, std::uint64_t{42});
 
 ### Year-specific generation
 
-Fix the birth year instead of drawing from the age pyramid.  Age is
-derived as `ref_year − year` and clamped to [0, 100]:
+Fix the birth year instead of drawing from the age pyramid. The age is
+the completed years at the reference date (see Reference Date), clamped to
+[0, 100]:
 
 ```cpp
 auto b = gen.get_birth("DE", dasmig::year_t{1990});
@@ -172,8 +177,9 @@ auto d = gen.get_birth("IN", dasmig::sex::male,
 
 ### Age-range generation
 
-Constrain the age to an inclusive range.  The age is rejection-sampled
-from the country's age pyramid within the bounds:
+Constrain the age to an inclusive range. The age is drawn from the
+country's age pyramid restricted to the range, so ages inside it keep
+their relative frequencies:
 
 ```cpp
 // Adults only.
@@ -314,8 +320,8 @@ Each `get_birth()` call runs the following pipeline:
 
 1. **Country selection** — population-weighted or uniform from loaded entries.
 2. **Biological sex** — Bernoulli trial weighted by the country's male:female population ratio (or fixed if a `sex` parameter is provided).
-3. **Age** — drawn from a discrete distribution over 0–100, shaped by the country's age pyramid (or derived from a fixed `year_t`, or rejection-sampled within an `age_range`).
-4. **Birth year** — `reference_year − age` (reference year = current year).
+3. **Age** — drawn from the country's age pyramid over 0–100 (or the part of it inside an `age_range`), or derived from a fixed `year_t`.
+4. **Birth year** — the year that makes the person exactly that age on the reference date (default 2023-07-01): a birthday after the reference date's month and day is one year earlier.
 5. **Birth month** — drawn from 12 seasonal weights derived from the country's latitude (sinusoidal model: NH peaks in September, SH peaks in March).
 6. **Birth day** — uniform within the month's valid range, then rejection-sampled for weekday deficit: if the candidate day falls on a weekend, it is rejected with probability `csection_rate × 0.5` (up to 3 retries).
 7. **Weekday** — computed via `std::chrono::weekday` from the final date.
@@ -324,33 +330,88 @@ Each `get_birth()` call runs the following pipeline:
 
 ## Data Pipeline
 
-The `scripts/prepare_births.py` script downloads and processes data from three sources:
+The three files are built by `scripts/prepare_births.py` from UN World Population Prospects 2024, REST Countries and WHO caesarean rates. [Data and Method](data.md) describes the sources, every column, the generation model and its limitations.
 
-1. **UN WPP 2024** (via [PPgp/wpp2024](https://github.com/PPgp/wpp2024) GitHub): population by age + sex, life expectancy by sex.
-2. **REST Countries v3.1**: ISO codes, latitude, independence status, regions.
-3. **WHO C-section rates**: hardcoded from WHO Global Health Observatory data.
+## Reference Date
 
-It produces three TSV files per tier:
+Ages are completed years at a fixed **reference date**, not at today's date, so a seed gives the same birth whenever it runs. The default is `bthg::default_reference_date`, 1 July 2023, the date of the UN population estimates in the data.
 
-```
-resources/
-├── full/
-│   ├── countries.tsv        # 250 rows
-│   ├── age_pyramid.tsv      # 235 rows × 203 columns
-│   └── monthly_births.tsv   # 250 rows × 13 columns
-└── lite/
-    ├── countries.tsv        # 195 rows
-    ├── age_pyramid.tsv      # 193 rows × 203 columns
-    └── monthly_births.tsv   # 195 rows × 13 columns
+```cpp
+gen.reference_date(std::chrono::year{2040} / std::chrono::January / std::chrono::day{1});
+auto b = gen.get_birth("BR");   // ages as of 2040-01-01; the 2023 age structure is kept
 ```
 
-Regenerate with:
+Changing the reference date shifts every birth year; replaying a seed needs the same reference date (and the same `weighted()` setting).
 
-```bash
-python scripts/prepare_births.py
+## Extending Data
+
+The shipped data is a base layer in three tables (see Loading Resources). Files with the same columns can be loaded on top to add countries, change them or remove them, without editing the shipped files. Rows are keyed by `cca2`.
+
+```cpp
+auto& gen = dasmig::bthg::instance();
+
+// A directory with any of countries.tsv, age_pyramid.tsv and
+// monthly_births.tsv: all are applied together, or none if any is invalid.
+gen.extend("mods/new_country");
+
+// One table, from a file named after it or from text.
+gen.extend("mods/age_pyramid.tsv");
+gen.extend_from_string(dasmig::bthg::table::monthly_births, text, "scenario months");
+
+// Remove a country: a layer needs only the key and a disabled column.
+gen.extend_from_string(dasmig::bthg::table::countries, "cca2\tdisabled\nVA\t1\n", "cleanup");
 ```
 
-Downloaded files are cached in `scripts/.cache/` to avoid repeated downloads.
+- A country is generated when it has a `countries.tsv` row with `le_male` and `le_female`, and an `age_pyramid.tsv` row. Without a `monthly_births.tsv` row its months are uniform.
+- Every row is checked before anything changes: numbers, a caesarean rate between 0 and 1, positive life expectancy, non-negative weights, and at least one non-zero age per sex and one non-zero month. A bad layer throws `dasmig::core::tsv_error` with the file, line and column, and the data stays as it was.
+- `layers(table)` lists what is loaded in each table; `data_hash()` covers all three.
+- `load(...)` replaces the data and drops every layer.
+
+## Replay and JSON
+
+Every result records the seed and the data it came from:
+
+```cpp
+auto b = gen.get_birth("JP");
+b.seed();                  // the call seed
+b.signature().data;        // gen.data_hash() when it was generated
+auto again = gen.get_birth("JP", b.seed());   // same birth, on every platform
+```
+
+`to_json()` gives the result as JSON, the form the WebAssembly layer and the game consume:
+
+```json
+{"country_code":"US","date":"1999-05-19","year":1999,"month":5,"day":19,"age":24,"sex":"male",
+ "weekday":3,"le_remaining":52.900000000000006,"cohort":"Generation Z",
+ "signature":{"seed":"0000000000000001","data":"99276bbdb2b0e563"}}
+```
+
+Seeds are strings because JavaScript numbers cannot hold every 64-bit value. `to_json(writer)` writes into an existing `dasmig::core::json_writer`.
+
+## Compiled-in Data
+
+Define `DASMIG_BIRTH_EMBED` before including the header to compile the `lite` tier into the program (about 350 KB of source). `load(dataset::lite)` and `instance()` then use it and need no files, which is what a WebAssembly build wants. The compiled-in data has the same `data_hash()` as the files, so seeds replay the same either way.
+
+```cpp
+#define DASMIG_BIRTH_EMBED
+#include <dasmig/birthgen.hpp>
+```
+
+`dasmig/birthgen_data.hpp` is generated from `resources/lite` by `make embed`; CI checks it is up to date.
+
+## Migrating from v1
+
+Version 2 moves the library onto [dasmig-core](https://github.com/dasmig/dasmig-core).
+
+- **Every seeded result changes.** The engine and the distributions are the core's own, so a seed gives the same birth on every compiler, standard library and CPU. Seeds saved with v1 do not reproduce their v1 results. The age, sex, month, weekday and country distributions are unchanged (checked against v1 over 20,000 draws per scenario).
+- **No more clock.** v1 computed ages from the current year, so the same seed gave different results as years passed. v2 uses a fixed reference date (see Reference Date).
+- **Ages are exact.** v1 set the birth year to the reference year minus the age even when the birthday fell after the reference date, so some ages were one year too high. v2 places the date so the age is exact; birth years average about half a year earlier.
+- **Age ranges are exact.** v1 redrew up to 200 times and then clamped; v2 draws from the age pyramid restricted to the range.
+- **Fixes:** a random country is chosen in data-file order (v1 used hash-map order, which differs between standard libraries); a country without monthly data gets uniform months (v1 gave every such birth January); a country without an age pyramid is not generated (v1 gave it age 0).
+- **Sex, age, month and day draw from their own streams**, so fixing the sex, year or age range no longer shifts the other draws.
+- **`load(path)`** still takes a directory and ignores a path that is not one; malformed files now throw `dasmig::core::tsv_error` with the file, line and column instead of skipping rows.
+- **Files:** replace `random.hpp` with `core.hpp` and the `core/` directory (see Installation).
+- **New:** `reference_date()`, `extend()`, `extend_from_string()`, `layers()`, `data_hash()`, `birth::signature()`, `birth::to_json()`, `DASMIG_BIRTH_EMBED`.
 
 ## Thread Safety
 
@@ -368,3 +429,5 @@ The singleton `bthg::instance()` returns a single shared instance, so concurrent
 | `std::runtime_error("No birth data loaded. Call load() first.")` | Called `get_birth()` before any `load()` and auto-probe found nothing. |
 | `std::invalid_argument("Unknown country code: XX")` | The country code passed to `get_birth("XX")` is not in the loaded dataset. |
 | `std::invalid_argument("age_range: min must be <= max")` | Passed an `age_range` where `min > max`. |
+| `std::invalid_argument` | `reference_date()` with an invalid date; `extend(file)` with a file not named after a table. |
+| `dasmig::core::tsv_error` | A malformed data file or layer (message gives file, line and column); the data is unchanged. |

@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/platform-linux%20|%20windows%20|%20macos-lightgrey.svg)](https://github.com/dasmig/birth-generator)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://dasmig.github.io/birth-generator/)
 
-**[API Reference](https://dasmig.github.io/birth-generator/)** · **[Usage Guide](doc/usage.md)** · **[Releases](https://github.com/dasmig/birth-generator/releases)**
+**[API Reference](https://dasmig.github.io/birth-generator/)** · **[Usage Guide](doc/usage.md)** · **[Data and Method](doc/data.md)** · **[Releases](https://github.com/dasmig/birth-generator/releases)**
 
 ## Features
 
@@ -33,11 +33,19 @@
 
 - **Uniform Selection**. Switch to equal-probability country selection with `weighted(false)`.
 
+- **Identical Everywhere**. A seed gives the same birth on every compiler, standard library and CPU (GCC, Clang, MSVC, Emscripten; x86-64 and ARM64), checked by known-answer tests. Ages are relative to a fixed reference date, not the clock.
+
+- **Extensible Data**. Load your own TSV layers on top of the shipped data to add, change or remove countries (`extend()`), checked before they are applied.
+
+- **JSON and Replay**. `to_json()` on every result, and a `signature()` recording the seed and the data it came from.
+
+- **Compiled-in Data**. Define `DASMIG_BIRTH_EMBED` to build the `lite` tier into the program, for WebAssembly and other builds without files.
+
 - **Multi-Instance Support**. Construct independent `bthg` instances with their own data and random engine.
 
 ## Integration
 
-[`birthgen.hpp`](https://github.com/dasmig/birth-generator/blob/master/dasmig/birthgen.hpp) is the single required file [released here](https://github.com/dasmig/birth-generator/releases). You also need [`random.hpp`](https://github.com/dasmig/birth-generator/blob/master/dasmig/random.hpp) in the same directory. Add
+[`birthgen.hpp`](https://github.com/dasmig/birth-generator/blob/master/dasmig/birthgen.hpp) is the library [released here](https://github.com/dasmig/birth-generator/releases). Keep [`core.hpp`](https://github.com/dasmig/birth-generator/blob/master/dasmig/core.hpp) and the [`core/`](https://github.com/dasmig/birth-generator/tree/master/dasmig/core) directory ([dasmig-core](https://github.com/dasmig/dasmig-core)) in the same directory. Add
 
 ```cpp
 #include <dasmig/birthgen.hpp>
@@ -121,10 +129,10 @@ Each call to `get_birth()` runs this pipeline:
 
 1. **Country** — select from loaded countries (population-weighted or uniform).
 2. **Sex** — male or female, weighted by the country's M:F population ratio (or fixed if specified).
-3. **Age** — drawn from the country-specific age pyramid, optionally clamped to a range (or derived from a fixed year).
-4. **Birth year** — `reference_year − age`.
+3. **Age** — drawn from the country-specific age pyramid, optionally restricted to a range (or derived from a fixed year).
+4. **Birth year** — the year that makes the age exact on the reference date (default 2023-07-01, the date of the UN estimates).
 5. **Month** — drawn from latitude-based seasonal weights.
-6. **Day** — uniform within the month, then rejection-sampled for weekday deficit (weekend births rejected with probability proportional to C-section rate).
+6. **Day** — uniform within the month, with a weekend deficit (weekend days redrawn with probability proportional to the C-section rate).
 7. **Weekday** — computed from the final date using `std::chrono`.
 8. **Life expectancy remaining** — `max(0, LE_at_birth − age)`.
 9. **Cohort label** — Greatest Generation through Generation Alpha.

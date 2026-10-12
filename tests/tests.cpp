@@ -1,5 +1,8 @@
 #include "catch_amalgamated.hpp"
 #include "../dasmig/birthgen.hpp"
+#include <chrono>
+#include <string_view>
+#include <fstream>
 
 #include <algorithm>
 #include <filesystem>
@@ -79,6 +82,7 @@ TEST_CASE("load(dataset::lite) loads fewer than full", "[loading][tier]")
     }
 }
 
+#ifndef DASMIG_BIRTH_EMBED // compiled-in data is never missing
 TEST_CASE("load(dataset) returns false for missing tier", "[loading][tier]")
 {
     dasmig::bthg gen;
@@ -94,6 +98,7 @@ TEST_CASE("load(dataset) returns false for missing tier", "[loading][tier]")
     std::filesystem::current_path(old_cwd);
     std::filesystem::remove_all(tmp);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // Generation — basic
@@ -671,16 +676,30 @@ TEST_CASE("get_birth(cca2, year) fixes the birth year", "[generation][year]")
 
 TEST_CASE("get_birth(cca2, year) derives correct age", "[generation][year]")
 {
+    // Ages are completed years at the reference date (default 2023-07-01),
+    // not at today's date.
     auto gen = make_loaded_generator();
-    auto b = gen.get_birth("DE", dasmig::year_t{2000});
+    for (std::uint64_t s = 0; s < 50; ++s)
+    {
+        auto b = gen.get_birth("DE", dasmig::year_t{2000}, s);
+        const bool after_july_1 = b.month > 7 || (b.month == 7 && b.day > 1);
+        REQUIRE(b.year == 2000);
+        REQUIRE(b.age == (after_july_1 ? 22 : 23));
+    }
+}
 
-    auto now_ymd = std::chrono::year_month_day{
-        std::chrono::floor<std::chrono::days>(
-            std::chrono::system_clock::now())};
-    int expected_age = static_cast<int>(now_ymd.year()) - 2000;
-    // Age should be ref_year - year, capped at 100.
-    REQUIRE(b.age == static_cast<std::uint8_t>(expected_age));
-    REQUIRE(b.year == 2000);
+TEST_CASE("reference_date moves ages, not the clock", "[generation][year]")
+{
+    auto gen = make_loaded_generator();
+    REQUIRE(gen.reference_date() == dasmig::bthg::default_reference_date);
+    const auto before = gen.get_birth("DE", std::uint64_t{42});
+    gen.reference_date(std::chrono::year{2033} / std::chrono::July / std::chrono::day{1});
+    const auto after = gen.get_birth("DE", std::uint64_t{42});
+    REQUIRE(after.age == before.age);          // same draw
+    REQUIRE(after.year == before.year + 10);   // ten years later
+    REQUIRE(after.month == before.month);
+    REQUIRE_THROWS_AS(gen.reference_date(std::chrono::year{2023} / std::chrono::February / std::chrono::day{30}),
+                      std::invalid_argument);
 }
 
 TEST_CASE("get_birth(cca2, year, seed) is deterministic", "[generation][year][seed]")
@@ -862,3 +881,217 @@ TEST_CASE("get_birth() seed round-trip", "[generation][seed]")
     REQUIRE(b1.month == b2.month);
     REQUIRE(b1.day == b2.day);
 }
+
+// ---------------------------------------------------------------------------
+// Known answers (rule 2): the same seed, data and reference date give these
+// exact results on every compiler and platform. A change here is a change of
+// output and needs a major version.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+dasmig::bthg load_lite_dir()
+{
+    dasmig::bthg gen;
+    for (const char* path : {"resources/lite", "../resources/lite"})
+    {
+        if (std::filesystem::is_directory(path))
+        {
+            gen.load(std::filesystem::path{path});
+            break;
+        }
+    }
+    REQUIRE(gen.has_data());
+    return gen;
+}
+
+std::string pyramid_header()
+{
+    std::string h = "cca2";
+    for (const char s : {'m', 'f'})
+    {
+        for (int a = 0; a <= 100; ++a) h += "\t" + std::string(1, s) + std::to_string(a);
+    }
+    return h + "\n";
+}
+
+// A pyramid where everyone is @p age.
+std::string pyramid_row(std::string_view cca2, int age)
+{
+    std::string r{cca2};
+    for (int s = 0; s < 2; ++s)
+    {
+        for (int a = 0; a <= 100; ++a) r += a == age ? "\t10" : "\t0";
+    }
+    return r + "\n";
+}
+
+const std::string countries_header =
+    "cca2\tcca3\tname\tregion\tsubregion\tlatitude\tindependent\tle_male\tle_female\tcsection_rate\n";
+
+} // namespace
+
+TEST_CASE("known answers for fixed seeds", "[kat]")
+{
+    auto gen = load_lite_dir();
+    REQUIRE(gen.data_hash() == 0x99276bbdb2b0e563ULL);
+
+    REQUIRE(gen.get_birth("US", std::uint64_t{1}).to_json() ==
+            R"({"country_code":"US","date":"1999-05-19","year":1999,"month":5,"day":19,"age":24,)"
+            R"("sex":"male","weekday":3,"le_remaining":52.900000000000006,"cohort":"Generation Z",)"
+            R"("signature":{"seed":"0000000000000001","data":"99276bbdb2b0e563"}})");
+    REQUIRE(gen.get_birth("JP", dasmig::sex::female, dasmig::year_t{1990}, std::uint64_t{2}).date_string() ==
+            "1990-12-04");
+    REQUIRE(gen.get_birth(std::uint64_t{3}).to_json() ==
+            R"({"country_code":"IN","date":"2013-08-19","year":2013,"month":8,"day":19,"age":9,)"
+            R"("sex":"male","weekday":1,"le_remaining":61.5,"cohort":"Generation Alpha",)"
+            R"("signature":{"seed":"0000000000000003","data":"99276bbdb2b0e563"}})");
+    REQUIRE(gen.get_birth("BR", dasmig::age_range{.min = 18, .max = 65}, std::uint64_t{4}).date_string() ==
+            "1982-04-23");
+    gen.weighted(false);
+    REQUIRE(gen.get_birth(std::uint64_t{5}).country_code == "HN");
+    gen.weighted(true);
+
+    std::uint64_t h = 0xcbf29ce484222325ULL;
+    for (std::uint64_t s = 0; s < 10000; ++s)
+    {
+        for (const char c : gen.get_birth(s).to_json())
+        {
+            h ^= static_cast<unsigned char>(c);
+            h *= 0x100000001b3ULL;
+        }
+    }
+    REQUIRE(h == 0xe717822b5c6d5d49ULL);
+}
+
+TEST_CASE("ages are exact at the reference date", "[generation][age]")
+{
+    auto gen = make_loaded_generator();
+    const auto ref = gen.reference_date();
+    for (std::uint64_t s = 0; s < 2000; ++s)
+    {
+        const auto b = gen.get_birth("NG", s);
+        const auto born = std::chrono::year{b.year} / std::chrono::month{b.month} / std::chrono::day{b.day};
+        REQUIRE(born.ok());
+        int completed = static_cast<int>(ref.year()) - b.year;
+        if (std::chrono::month_day{born.month(), born.day()} >
+            std::chrono::month_day{ref.month(), ref.day()})
+        {
+            --completed;
+        }
+        REQUIRE(completed == b.age);
+    }
+}
+
+TEST_CASE("forcing the sex leaves the other draws unchanged", "[generation][sex]")
+{
+    auto gen = make_loaded_generator();
+    for (std::uint64_t s = 0; s < 200; ++s)
+    {
+        const auto free = gen.get_birth("US", s);
+        REQUIRE(gen.get_birth("US", free.bio_sex, s).to_json() == free.to_json());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Extending data (rule 8)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("extend a single table", "[extend]")
+{
+    auto gen = make_loaded_generator();
+    const auto count = gen.country_count();
+    const auto base_hash = gen.data_hash();
+
+    // A new country needs a countries row and an age pyramid.
+    gen.extend_from_string(dasmig::bthg::table::countries,
+                           countries_header + "QQ\tQQQ\tAtlantis\tOcean\t\t30\t1\t80\t84\t0.1\n", "atl.tsv");
+    REQUIRE(gen.country_count() == count); // no pyramid yet
+    REQUIRE_THROWS_AS(gen.get_birth("QQ"), std::invalid_argument);
+    gen.extend_from_string(dasmig::bthg::table::age_pyramid, pyramid_header() + pyramid_row("QQ", 30), "pyr.tsv");
+    REQUIRE(gen.country_count() == count + 1);
+    REQUIRE(gen.data_hash() != base_hash);
+
+    // Everyone in QQ is 30; without monthly data every month is possible.
+    std::set<int> months;
+    for (std::uint64_t s = 0; s < 300; ++s)
+    {
+        const auto b = gen.get_birth("QQ", s);
+        REQUIRE(b.age == 30);
+        REQUIRE(b.le_remaining == Catch::Approx(b.bio_sex == dasmig::sex::male ? 50.0 : 54.0));
+        months.insert(b.month);
+    }
+    REQUIRE(months.size() == 12);
+    REQUIRE(gen.layers(dasmig::bthg::table::countries).size() == 2);
+    REQUIRE(gen.layers(dasmig::bthg::table::monthly_births).size() == 1);
+}
+
+TEST_CASE("a directory layer is applied all or nothing", "[extend][errors]")
+{
+    auto gen = make_loaded_generator();
+    const auto hash = gen.data_hash();
+    const auto count = gen.country_count();
+    const auto dir = std::filesystem::temp_directory_path() / "bthg_layer";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    {
+        std::ofstream{dir / "countries.tsv"} << countries_header << "QQ\tQQQ\tAtlantis\tOcean\t\t30\t1\t80\t84\t0.1\n";
+        std::ofstream{dir / "age_pyramid.tsv"} << pyramid_header() << pyramid_row("QQ", 30);
+        std::ofstream{dir / "monthly_births.tsv"} << "cca2\tjan\tfeb\tmar\tapr\tmay\tjun\tjul\taug\tsep\toct\tnov\tdec\n"
+                                                  << "QQ\t1\t1\t1\t1\t1\t1\t1\t1\t1\t1\t1\tmany\n";
+    }
+    try
+    {
+        gen.extend(dir);
+        FAIL("expected core::tsv_error");
+    }
+    catch (const dasmig::core::tsv_error& e)
+    {
+        REQUIRE(e.column() == "dec");
+    }
+    REQUIRE(gen.data_hash() == hash); // the valid countries and pyramid files were not applied either
+    REQUIRE(gen.country_count() == count);
+
+    std::ofstream{dir / "monthly_births.tsv"} << "cca2\tjan\tfeb\tmar\tapr\tmay\tjun\tjul\taug\tsep\toct\tnov\tdec\n"
+                                              << "QQ\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t5\t0\n";
+    gen.extend(dir);
+    REQUIRE(gen.country_count() == count + 1);
+    REQUIRE(gen.get_birth("QQ").month == 11); // every QQ birth is in November
+
+    REQUIRE_THROWS_AS(gen.extend(dir / "other.tsv"), std::invalid_argument);
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("bad rows are rejected with their location", "[extend][errors]")
+{
+    auto gen = make_loaded_generator();
+    const auto hash = gen.data_hash();
+    REQUIRE_THROWS_WITH(gen.extend_from_string(dasmig::bthg::table::countries,
+                                               countries_header + "QQ\tQQQ\tAtlantis\tOcean\t\t30\t1\t80\t84\t1.5\n",
+                                               "c.tsv"),
+                        "c.tsv:2: column 'csection_rate': must be between 0 and 1");
+    REQUIRE_THROWS_WITH(gen.extend_from_string(dasmig::bthg::table::age_pyramid,
+                                               pyramid_header() + pyramid_row("QQ", 200), "p.tsv"),
+                        "p.tsv:2: column 'm0': every age of this sex is 0");
+    REQUIRE(gen.data_hash() == hash);
+}
+
+#ifdef DASMIG_BIRTH_EMBED
+TEST_CASE("compiled-in data needs no files and matches them", "[embed]")
+{
+    const auto old_cwd = std::filesystem::current_path();
+    const auto tmp = std::filesystem::temp_directory_path() / "bthg_embed_dir";
+    std::filesystem::create_directories(tmp);
+    std::filesystem::current_path(tmp);
+    dasmig::bthg gen;
+    const bool loaded = gen.load(dasmig::dataset::lite);
+    std::filesystem::current_path(old_cwd);
+    std::filesystem::remove_all(tmp);
+
+    REQUIRE(loaded);
+    REQUIRE(gen.layers(dasmig::bthg::table::countries).front().source == "embedded:lite/countries.tsv");
+    REQUIRE(gen.data_hash() == 0x99276bbdb2b0e563ULL); // same as the files
+    REQUIRE(gen.get_birth("US", std::uint64_t{1}).date_string() == "1999-05-19");
+}
+#endif

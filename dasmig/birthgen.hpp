@@ -1,76 +1,70 @@
 #ifndef DASMIG_BIRTHGEN_HPP
 #define DASMIG_BIRTHGEN_HPP
 
-#include "random.hpp"
+#include "core.hpp"
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <format>
-#include <fstream>
+#include <map>
+#include <optional>
 #include <ostream>
-#include <random>
-#include <ranges>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <unordered_map>
 #include <utility>
 #include <vector>
+
+#ifdef DASMIG_BIRTH_EMBED
+#include "birthgen_data.hpp"
+#endif
 
 /// @file birthgen.hpp
 /// @brief Birth generator library — procedural birthday generation for C++23.
 /// @author Diego Dasso Migotto (diegomigotto at hotmail dot com)
 /// @see See doc/usage.md for the narrative tutorial.
 
+DASMIG_CORE_REQUIRE(0, 3);
+
 namespace dasmig
 {
 
-/// @brief Dataset size tier for resource loading.
-#ifndef DASMIG_DATASET_DEFINED
-#define DASMIG_DATASET_DEFINED
-enum class dataset : std::uint8_t
-{
-    lite, ///< ~195 sovereign states only.
-    full  ///< ~237 countries and territories (UN WPP coverage).
-};
-#endif
-
-/// @brief Biological sex for birth generation.
 #ifndef DASMIG_SEX_DEFINED
 #define DASMIG_SEX_DEFINED
+/// @brief Biological sex.
 enum class sex : std::uint8_t
 {
-    male,
-    female
+    male,  ///< Male.
+    female ///< Female.
 };
 #endif
 
-/// @brief Strong type for specifying a birth year.
-///
-/// Wraps a plain integer to prevent overload ambiguity with seed
-/// parameters.  Must be constructed explicitly: `year_t{1990}`.
+/// @brief Strong type for a birth year, so it is not mistaken for a seed.
 struct year_t
 {
-    std::uint16_t value;
+    std::uint16_t value; ///< The year.
+
+    /// @brief Construct from a year.
+    /// @param v The year.
     constexpr explicit year_t(std::uint16_t v) noexcept : value{v} {}
 };
 
-/// @brief Specifies an inclusive age range [min, max].
+/// @brief An inclusive range of ages in completed years.
 struct age_range
 {
-    std::uint8_t min;
-    std::uint8_t max;
+    std::uint8_t min; ///< Youngest age.
+    std::uint8_t max; ///< Oldest age.
 };
 
-/// @brief Return type for birth generation, holding all data fields.
+/// @brief Return type for birth generation.
 ///
-/// Supports implicit conversion to std::string (returns ISO date)
-/// and streaming via operator<<.
+/// Supports implicit conversion to std::string (ISO 8601 date),
+/// streaming via operator<< and JSON output via to_json().
 class birth
 {
   public:
@@ -78,22 +72,57 @@ class birth
     std::uint16_t year{0};    ///< Birth year.
     std::uint8_t month{0};    ///< Birth month (1–12).
     std::uint8_t day{0};      ///< Birth day (1–31).
-    std::uint8_t age{0};      ///< Age in completed years.
+    std::uint8_t age{0};      ///< Age in completed years at the reference date.
     sex bio_sex{sex::male};   ///< Biological sex.
     std::uint8_t weekday{0};  ///< Day of week (0=Sun, 1=Mon, …, 6=Sat).
     double le_remaining{0.0}; ///< Estimated years of life remaining.
     std::string cohort;       ///< Generational cohort label.
 
     /// @brief Retrieve the random seed used to generate this birth.
-    [[nodiscard]] std::uint64_t seed() const { return _seed; }
+    /// @return The call seed; pass it to a seeded get_birth() overload to
+    ///         generate the same birth again.
+    [[nodiscard]] std::uint64_t seed() const { return _signature.seed; }
+
+    /// @brief The seed and the data this birth was generated from.
+    /// @return The replay signature; `data` is bthg::data_hash() at the
+    ///         time of generation.
+    [[nodiscard]] const core::seed_signature& signature() const { return _signature; }
 
     /// @brief ISO 8601 date string (YYYY-MM-DD).
+    /// @return The date.
     [[nodiscard]] std::string date_string() const
     {
-        return std::format("{:04d}-{:02d}-{:02d}",
-                           static_cast<int>(year),
-                           static_cast<int>(month),
-                           static_cast<int>(day));
+        return std::format("{:04d}-{:02d}-{:02d}", static_cast<int>(year),
+                           static_cast<int>(month), static_cast<int>(day));
+    }
+
+    /// @brief Write this birth as a JSON object.
+    /// @param w Writer positioned where a value is allowed.
+    void to_json(core::json_writer& w) const
+    {
+        w.begin_object()
+            .field("country_code", country_code)
+            .field("date", date_string())
+            .field("year", static_cast<int>(year))
+            .field("month", static_cast<int>(month))
+            .field("day", static_cast<int>(day))
+            .field("age", static_cast<int>(age))
+            .field("sex", bio_sex == sex::male ? "male" : "female")
+            .field("weekday", static_cast<int>(weekday))
+            .field("le_remaining", le_remaining)
+            .field("cohort", cohort)
+            .key("signature");
+        _signature.to_json(w);
+        w.end_object();
+    }
+
+    /// @brief This birth as a JSON document.
+    /// @return Compact JSON.
+    [[nodiscard]] std::string to_json() const
+    {
+        core::json_writer w;
+        to_json(w);
+        return w.str();
     }
 
     /// @brief Implicit conversion to std::string.
@@ -104,6 +133,9 @@ class birth
     }
 
     /// @brief Stream the ISO date to an output stream.
+    /// @param os Output stream.
+    /// @param b Birth to stream.
+    /// @return The stream.
     friend std::ostream& operator<<(std::ostream& os, const birth& b)
     {
         os << b.date_string();
@@ -111,40 +143,63 @@ class birth
     }
 
   private:
-    std::uint64_t _seed{0};
+    core::seed_signature _signature;
     friend class bthg;
 };
 
 /// @brief Birth generator that produces demographically plausible
-///        random birthdays using UN WPP 2024 population data.
+///        birthdays from country age pyramids.
 ///
-/// The generation pipeline:
-/// 1. Select biological sex (population M:F ratio).
-/// 2. Select age from country-specific age pyramid.
-/// 3. Compute birth year = current year − age.
-/// 4. Select month from latitude-based seasonal weights.
-/// 5. Select day within month (weekday-aware deficit).
+/// The generation pipeline, each step drawing from its own stream split
+/// from the call seed (so fixing the sex, year or age range leaves the
+/// other steps' draws unchanged):
+/// 1. Sex, weighted by the country's male:female population.
+/// 2. Age in completed years, from the country's age pyramid for that sex
+///    (optionally restricted to an age range), or derived from a fixed year.
+/// 3. Month, from the country's seasonal weights.
+/// 4. Day, uniform within the month and placed so that the age at the
+///    reference date is exact; weekend days are redrawn with a probability
+///    that grows with the country's caesarean rate.
+/// 5. Weekday, remaining life expectancy and generational cohort.
 ///
-/// Can be used as a singleton via instance() or constructed independently.
+/// Ages are relative to a fixed reference date (default 2023-07-01, the
+/// date of the population estimates), not the clock, so a seed gives the
+/// same birth every time. Output is identical on every compiler and
+/// platform (dasmig-core).
 ///
 /// @par Thread safety
-/// Each instance is independent.  Concurrent calls to get_birth() on
-/// the **same** instance require external synchronisation.
+/// Each instance is independent. Concurrent calls to get_birth() on the
+/// **same** instance require external synchronisation.
 class bthg
 {
   public:
-    /// @brief Default constructor — creates an empty generator with no data.
-    bthg() : _ref_year(current_year_()) {}
+    /// @brief The three data tables.
+    enum class table : std::uint8_t
+    {
+        countries,     ///< `countries.tsv`: names, life expectancy, caesarean rate.
+        age_pyramid,   ///< `age_pyramid.tsv`: population by single age and sex.
+        monthly_births ///< `monthly_births.tsv`: seasonal birth weights.
+    };
 
-    bthg(const bthg&) = delete;
-    bthg& operator=(const bthg&) = delete;
-    bthg(bthg&&) noexcept = default;
-    bthg& operator=(bthg&&) noexcept = default;
-    ~bthg() = default;
+    /// @brief The default reference date: 1 July 2023, the date the UN
+    ///        World Population Prospects estimates in the data refer to.
+    static constexpr std::chrono::year_month_day default_reference_date{
+        std::chrono::year{2023}, std::chrono::July, std::chrono::day{1}};
+
+    /// @brief Default constructor — creates an empty generator with no data.
+    bthg() = default;
+
+    bthg(const bthg&) = delete;            ///< Not copyable.
+    bthg& operator=(const bthg&) = delete; ///< Not copyable.
+    bthg(bthg&&) noexcept = default;       ///< Movable.
+    bthg& operator=(bthg&&) noexcept = default; ///< Movable.
+    ~bthg() = default;                     ///< Destructor.
 
     /// @brief Access the global singleton instance.
     ///
-    /// Auto-probes common resource paths on first access.
+    /// Loads the `lite` tier (or `full` if `lite` is missing) on first
+    /// access, from compiled-in data or an auto-probed `resources/`.
+    /// @return The singleton.
     static bthg& instance()
     {
         static bthg inst{auto_probe_tag{}};
@@ -154,7 +209,8 @@ class bthg
     // -- Generation -------------------------------------------------------
 
     /// @brief Generate a random birth for a specific country.
-    /// @param cca2 ISO 3166-1 alpha-2 country code (e.g. "US", "BR").
+    /// @param cca2 ISO 3166-1 alpha-2 country code.
+    /// @return The birth.
     /// @throws std::runtime_error If no data has been loaded.
     /// @throws std::invalid_argument If the country code is unknown.
     [[nodiscard]] birth get_birth(std::string_view cca2)
@@ -163,178 +219,149 @@ class bthg
     }
 
     /// @brief Generate a deterministic birth for a specific country.
-    [[nodiscard]] birth get_birth(std::string_view cca2,
-                                  std::uint64_t call_seed) const
+    /// @param cca2 ISO 3166-1 alpha-2 country code.
+    /// @param call_seed Seed.
+    /// @return The birth.
+    [[nodiscard]] birth get_birth(std::string_view cca2, std::uint64_t call_seed) const
     {
         return generate_(lookup_entry_(cca2), call_seed, {});
     }
 
-    /// @brief Generate a random birth from a random country.
-    /// @throws std::runtime_error If no data has been loaded.
-    [[nodiscard]] birth get_birth()
-    {
-        return get_birth(draw_seed_());
-    }
+    /// @brief Generate a random birth from a random country (weighted by
+    ///        population unless weighted(false)).
+    /// @return The birth.
+    [[nodiscard]] birth get_birth() { return get_birth(draw_seed_()); }
 
     /// @brief Generate a deterministic birth from a random country.
+    /// @param call_seed Seed.
+    /// @return The birth.
     [[nodiscard]] birth get_birth(std::uint64_t call_seed) const
     {
-        if (_entries.empty())
-        {
-            throw std::runtime_error(
-                "No birth data loaded. Call load() first.");
-        }
-        effolkronium::random_local rng;
-        rng.seed(static_cast<std::mt19937::result_type>(
-            call_seed ^ (call_seed >> seed_shift_)));
-
-        auto idx = _weighted
-                       ? _country_dist(rng.engine())
-                       : _country_uniform(rng.engine());
-        return get_birth(_cca2_order[idx], call_seed); // NOLINT
+        return generate_(random_entry_(call_seed), call_seed, {});
     }
 
     // -- Sex-specific generation ------------------------------------------
 
-    /// @brief Generate a random birth with a predetermined sex.
+    /// @brief Random birth with a fixed sex.
+    /// @param cca2 Country code.
+    /// @param bio_sex Sex.
+    /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(),
-                         {.fix_sex = true, .forced_sex = bio_sex});
+        return generate_(lookup_entry_(cca2), draw_seed_(), {.sex = bio_sex});
     }
 
-    /// @brief Generate a deterministic birth with a predetermined sex.
+    /// @brief Deterministic birth with a fixed sex.
+    /// @param cca2 Country code.
+    /// @param bio_sex Sex.
+    /// @param call_seed Seed.
+    /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
                                   std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed,
-                         {.fix_sex = true, .forced_sex = bio_sex});
+        return generate_(lookup_entry_(cca2), call_seed, {.sex = bio_sex});
     }
 
-    /// @brief Generate a random birth from a random country with a
-    ///        predetermined sex.
-    [[nodiscard]] birth get_birth(sex bio_sex)
-    {
-        auto seed = draw_seed_();
-        if (_entries.empty())
-        {
-            throw std::runtime_error(
-                "No birth data loaded. Call load() first.");
-        }
-        effolkronium::random_local rng;
-        rng.seed(static_cast<std::mt19937::result_type>(
-            seed ^ (seed >> seed_shift_)));
-        auto idx = _weighted
-                       ? _country_dist(rng.engine())
-                       : _country_uniform(rng.engine());
-        return generate_(lookup_entry_(_cca2_order[idx]), seed, // NOLINT
-                         {.fix_sex = true, .forced_sex = bio_sex});
-    }
+    /// @brief Random birth from a random country with a fixed sex.
+    /// @param bio_sex Sex.
+    /// @return The birth.
+    [[nodiscard]] birth get_birth(sex bio_sex) { return get_birth(bio_sex, draw_seed_()); }
 
-    /// @brief Generate a deterministic birth from a random country with a
-    ///        predetermined sex.
-    [[nodiscard]] birth get_birth(sex bio_sex,
-                                  std::uint64_t call_seed) const
+    /// @brief Deterministic birth from a random country with a fixed sex.
+    /// @param bio_sex Sex.
+    /// @param call_seed Seed.
+    /// @return The birth.
+    [[nodiscard]] birth get_birth(sex bio_sex, std::uint64_t call_seed) const
     {
-        if (_entries.empty())
-        {
-            throw std::runtime_error(
-                "No birth data loaded. Call load() first.");
-        }
-        effolkronium::random_local rng;
-        rng.seed(static_cast<std::mt19937::result_type>(
-            call_seed ^ (call_seed >> seed_shift_)));
-
-        auto idx = _weighted
-                       ? _country_dist(rng.engine())
-                       : _country_uniform(rng.engine());
-        return get_birth(_cca2_order[idx], bio_sex, call_seed); // NOLINT
+        return generate_(random_entry_(call_seed), call_seed, {.sex = bio_sex});
     }
 
     // -- Year-specific generation -----------------------------------------
 
-    /// @brief Generate a random birth for a specific year.
-    /// @param cca2 ISO 3166-1 alpha-2 country code.
-    /// @param year Birth year (e.g. `year_t{1990}`).  Age is derived as
-    ///        ref_year − year and clamped to [0, 100].
+    /// @brief Random birth in a fixed year.
+    /// @param cca2 Country code.
+    /// @param year Birth year.
+    /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, year_t year)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(),
-                         {.fix_year = true, .forced_year = year.value});
+        return generate_(lookup_entry_(cca2), draw_seed_(), {.year = year.value});
     }
 
-    /// @brief Generate a deterministic birth for a specific year.
+    /// @brief Deterministic birth in a fixed year.
+    /// @param cca2 Country code.
+    /// @param year Birth year.
+    /// @param call_seed Seed.
+    /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, year_t year,
                                   std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed,
-                         {.fix_year = true, .forced_year = year.value});
+        return generate_(lookup_entry_(cca2), call_seed, {.year = year.value});
     }
 
     // -- Sex + year generation --------------------------------------------
 
-    /// @brief Generate a random birth with predetermined sex and year.
-    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
-                                  year_t year)
+    /// @brief Random birth with a fixed sex and year.
+    /// @param cca2 Country code.
+    /// @param bio_sex Sex.
+    /// @param year Birth year.
+    /// @return The birth.
+    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex, year_t year)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(),
-                         {.fix_sex = true, .forced_sex = bio_sex,
-                          .fix_year = true, .forced_year = year.value});
+        return generate_(lookup_entry_(cca2), draw_seed_(), {.sex = bio_sex, .year = year.value});
     }
 
-    /// @brief Generate a deterministic birth with predetermined sex and
-    ///        year.
-    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
-                                  year_t year,
+    /// @brief Deterministic birth with a fixed sex and year.
+    /// @param cca2 Country code.
+    /// @param bio_sex Sex.
+    /// @param year Birth year.
+    /// @param call_seed Seed.
+    /// @return The birth.
+    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex, year_t year,
                                   std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed,
-                         {.fix_sex = true, .forced_sex = bio_sex,
-                          .fix_year = true, .forced_year = year.value});
+        return generate_(lookup_entry_(cca2), call_seed, {.sex = bio_sex, .year = year.value});
     }
 
     // -- Age-range generation ---------------------------------------------
 
-    /// @brief Generate a random birth with age within [range.min,
-    ///        range.max].
+    /// @brief Random birth with an age in a range (e.g. adults 18–65).
+    ///
+    /// The age is drawn from the age pyramid restricted to the range, so
+    /// ages within it keep their relative frequencies. Ages above 100 are
+    /// treated as 100.
+    ///
+    /// @param cca2 Country code.
+    /// @param range Inclusive age range.
+    /// @return The birth.
     /// @throws std::invalid_argument If range.min > range.max.
     [[nodiscard]] birth get_birth(std::string_view cca2, age_range range)
     {
-        if (range.min > range.max)
-        {
-            throw std::invalid_argument(
-                "age_range: min must be <= max");
-        }
-        return generate_(lookup_entry_(cca2), draw_seed_(),
-                         {.fix_age_range = true,
-                          .age_min = range.min,
-                          .age_max = std::min<std::uint8_t>(
-                              range.max,
-                              static_cast<std::uint8_t>(max_age_))});
+        return get_birth(cca2, range, draw_seed_());
     }
 
-    /// @brief Generate a deterministic birth with age within
-    ///        [range.min, range.max].
-    [[nodiscard]] birth get_birth(std::string_view cca2,
-                                  age_range range,
+    /// @brief Deterministic birth with an age in a range.
+    /// @param cca2 Country code.
+    /// @param range Inclusive age range.
+    /// @param call_seed Seed.
+    /// @return The birth.
+    /// @throws std::invalid_argument If range.min > range.max.
+    [[nodiscard]] birth get_birth(std::string_view cca2, age_range range,
                                   std::uint64_t call_seed) const
     {
         if (range.min > range.max)
         {
-            throw std::invalid_argument(
-                "age_range: min must be <= max");
+            throw std::invalid_argument("age_range: min must be <= max");
         }
+        const auto top = static_cast<std::uint8_t>(max_age_);
         return generate_(lookup_entry_(cca2), call_seed,
-                         {.fix_age_range = true,
-                          .age_min = range.min,
-                          .age_max = std::min<std::uint8_t>(
-                              range.max,
-                              static_cast<std::uint8_t>(max_age_))});
+                         {.age_min = std::min(range.min, top), .age_max = std::min(range.max, top)});
     }
 
-    // -- Seeding ----------------------------------------------------------
+    // -- Seeding and options ----------------------------------------------
 
     /// @brief Seed the internal random engine for deterministic sequences.
+    /// @param seed_value Seed.
+    /// @return `*this`.
     bthg& seed(std::uint64_t seed_value)
     {
         _engine.seed(seed_value);
@@ -342,296 +369,625 @@ class bthg
     }
 
     /// @brief Reseed the engine with a non-deterministic source.
+    /// @return `*this`.
     bthg& unseed()
     {
-        _engine.seed(std::random_device{}());
+        _engine.unseed();
         return *this;
     }
 
-    /// @brief Set whether country selection is population-weighted.
+    /// @brief Set whether a random country is population-weighted.
+    /// @param enable `true` for weighted (default), `false` for uniform.
+    /// @return `*this`.
     bthg& weighted(bool enable)
     {
         _weighted = enable;
         return *this;
     }
 
-    /// @brief Query whether country selection is population-weighted.
+    /// @brief Whether a random country is population-weighted.
+    /// @return `true` if weighted.
     [[nodiscard]] bool weighted() const { return _weighted; }
+
+    /// @brief Set the date ages are computed at.
+    ///
+    /// The default is default_reference_date (2023-07-01). Changing it
+    /// shifts every generated birth year; replaying a seed needs the same
+    /// reference date.
+    ///
+    /// @param date A valid date.
+    /// @return `*this`.
+    /// @throws std::invalid_argument If @p date is not a valid date.
+    bthg& reference_date(std::chrono::year_month_day date)
+    {
+        if (!date.ok())
+        {
+            throw std::invalid_argument("reference_date: not a valid date");
+        }
+        _reference = date;
+        return *this;
+    }
+
+    /// @brief The date ages are computed at.
+    /// @return The reference date.
+    [[nodiscard]] std::chrono::year_month_day reference_date() const { return _reference; }
 
     // -- Data management --------------------------------------------------
 
-    /// @brief Check whether any data has been loaded.
+    /// @brief Check whether any country can be generated.
+    /// @return True when at least one country has an age pyramid and life
+    ///         expectancy.
     [[nodiscard]] bool has_data() const { return !_entries.empty(); }
 
-    /// @brief Return the number of loaded countries.
-    [[nodiscard]] std::size_t country_count() const
-    {
-        return _entries.size();
-    }
+    /// @brief Number of countries that can be generated.
+    /// @return The count.
+    [[nodiscard]] std::size_t country_count() const { return _entries.size(); }
 
-    /// @brief Load birth data from a resource directory.
+    /// @brief Load data from a resource directory, replacing all data and
+    ///        layers loaded before.
     ///
-    /// Expects the directory to contain: countries.tsv,
-    /// age_pyramid.tsv, monthly_births.tsv.
+    /// Reads `countries.tsv`, `age_pyramid.tsv` and `monthly_births.tsv`;
+    /// a missing file leaves its table empty. A path that is not a
+    /// directory, or has no `countries.tsv`, is ignored.
+    ///
+    /// @param dir Directory such as `resources/lite`.
+    /// @throws core::tsv_error If a file is malformed; the data is then
+    ///         unchanged.
     void load(const std::filesystem::path& dir)
     {
-        if (!std::filesystem::is_directory(dir))
+        std::error_code ec;
+        if (!std::filesystem::is_directory(dir, ec) ||
+            !std::filesystem::is_regular_file(dir / file_name_(table::countries), ec))
         {
             return;
         }
-
-        load_countries_(dir / "countries.tsv");
-        load_age_pyramid_(dir / "age_pyramid.tsv");
-        load_monthly_(dir / "monthly_births.tsv");
-        rebuild_indices_();
+        apply_(read_directory_(dir), core::layer_mode::replace, true);
     }
 
-    /// @brief Load a specific dataset tier from auto-probed paths.
+    /// @brief Load a dataset tier, replacing all data and layers loaded
+    ///        before.
+    ///
+    /// Uses the compiled-in copy when the library is built with
+    /// `DASMIG_BIRTH_EMBED`, otherwise searches `resources/`,
+    /// `../resources`, `birth-generator/resources` and
+    /// `../birth-generator/resources`.
+    ///
+    /// @param tier The tier.
+    /// @return False when the tier was not found.
+    /// @throws core::tsv_error If a file is malformed.
     [[nodiscard]] bool load(dataset tier)
     {
-        std::string_view sub = (tier == dataset::full) ? "full" : "lite";
-        auto found = std::ranges::find_if(
-            probe_bases_, [&](std::string_view base) {
-                auto d = std::filesystem::path{base} / sub;
-                return std::filesystem::is_regular_file(
-                    d / "countries.tsv");
-            });
-        if (found != probe_bases_.end())
+        const std::string tier_dir{core::tier_name(tier)};
+        const auto marker = tier_dir + "/" + std::string{file_name_(table::countries)};
+        const auto root = core::find_resources(library_name_, marker);
+        documents docs;
+        for (const auto t : all_tables_)
         {
-            load(std::filesystem::path{*found} / sub);
-            return true;
+            docs.at(index_(t)) = core::load_resource(tier_dir + "/" + std::string{file_name_(t)},
+                                                     embedded_files_(), root);
         }
-        return false;
+        if (!docs.at(index_(table::countries))) return false;
+        apply_(std::move(docs), core::layer_mode::replace, true);
+        return true;
+    }
+
+    /// @brief Add data layers from a directory or a file.
+    ///
+    /// A directory may hold any of `countries.tsv`, `age_pyramid.tsv` and
+    /// `monthly_births.tsv`; all are applied together or, if any fails,
+    /// none. A file must have one of those names. Rows are keyed by
+    /// `cca2`; see Extending Data in doc/usage.md.
+    ///
+    /// @param path Directory or file.
+    /// @param mode How the layers combine with the data loaded before.
+    /// @throws core::tsv_error If a file cannot be read or a row is
+    ///         invalid; the data is then unchanged.
+    /// @throws std::invalid_argument If @p path is a file with another name.
+    void extend(const std::filesystem::path& path, core::layer_mode mode = core::layer_mode::override)
+    {
+        std::error_code ec;
+        if (std::filesystem::is_directory(path, ec))
+        {
+            apply_(read_directory_(path), mode, false);
+            return;
+        }
+        for (const auto t : all_tables_)
+        {
+            if (path.filename() == file_name_(t))
+            {
+                extend(t, core::tsv_document::load(path), mode);
+                return;
+            }
+        }
+        throw std::invalid_argument("extend: expected countries.tsv, age_pyramid.tsv or "
+                                    "monthly_births.tsv, got " + path.filename().string());
+    }
+
+    /// @brief Add a data layer to one table.
+    /// @param which The table.
+    /// @param doc TSV with that table's columns.
+    /// @param mode How the layer combines with the data loaded before.
+    /// @return What the layer did.
+    /// @throws core::tsv_error If a row is invalid; the data is unchanged.
+    const core::layer_info& extend(table which, core::tsv_document doc,
+                                   core::layer_mode mode = core::layer_mode::override)
+    {
+        documents docs;
+        docs.at(index_(which)).emplace(std::move(doc));
+        apply_(std::move(docs), mode, false);
+        return _tables.at(index_(which)).layers().back();
+    }
+
+    /// @brief Add a data layer to one table from TSV text.
+    /// @param which The table.
+    /// @param text TSV with that table's columns.
+    /// @param source Name used in errors.
+    /// @param mode How the layer combines with the data loaded before.
+    /// @return What the layer did.
+    /// @throws core::tsv_error If a row is invalid; the data is unchanged.
+    const core::layer_info& extend_from_string(table which, std::string_view text, std::string source,
+                                               core::layer_mode mode = core::layer_mode::override)
+    {
+        return extend(which, core::tsv_document::parse(text, std::move(source)), mode);
+    }
+
+    /// @brief The layers in effect for one table, in order.
+    /// @param which The table.
+    /// @return The layer records.
+    [[nodiscard]] const std::vector<core::layer_info>& layers(table which) const
+    {
+        return _tables.at(index_(which)).layers();
+    }
+
+    /// @brief Hash of the loaded data (all three tables), recorded in each
+    ///        result's signature().
+    /// @return The hash; 0 when nothing is loaded.
+    [[nodiscard]] std::uint64_t data_hash() const
+    {
+        std::uint64_t h = 0;
+        bool any = false;
+        for (const auto& t : _tables)
+        {
+            any = any || !t.layers().empty();
+            h = core::hash_combine(h, t.data_hash());
+        }
+        return any ? h : 0;
     }
 
   private:
-    // -- Internal data structures -----------------------------------------
+    static constexpr std::string_view library_name_ = "birth-generator";
+    static constexpr std::size_t max_age_ = 100;
+    static constexpr std::size_t table_count_ = 3;
+    static constexpr std::array<table, table_count_> all_tables_{
+        table::countries, table::age_pyramid, table::monthly_births};
+    static constexpr std::array<std::string_view, 12> month_columns_{
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"};
+
+    using documents = std::array<std::optional<core::tsv_document>, table_count_>;
+    using tables = std::array<core::layered_table, table_count_>;
+
+    static constexpr std::size_t index_(table t) { return static_cast<std::size_t>(t); }
+
+    static constexpr std::string_view file_name_(table t)
+    {
+        switch (t)
+        {
+        case table::countries: return "countries.tsv";
+        case table::age_pyramid: return "age_pyramid.tsv";
+        case table::monthly_births: return "monthly_births.tsv";
+        }
+        return "";
+    }
+
+    static const std::vector<std::string>& pyramid_columns_()
+    {
+        static const std::vector<std::string> columns = [] {
+            std::vector<std::string> c;
+            for (const char s : {'m', 'f'})
+            {
+                for (std::size_t a = 0; a <= max_age_; ++a) c.push_back(std::string(1, s) + std::to_string(a));
+            }
+            return c;
+        }();
+        return columns;
+    }
+
+    static core::table_schema schema_(table t)
+    {
+        switch (t)
+        {
+        case table::countries:
+            return {.key = {"cca2"},
+                    .required = {"name", "csection_rate"},
+                    .optional = {"cca3", "region", "subregion", "latitude", "independent",
+                                 "le_male", "le_female"}};
+        case table::age_pyramid: return {.key = {"cca2"}, .required = pyramid_columns_(), .optional = {}};
+        case table::monthly_births:
+            return {.key = {"cca2"},
+                    .required = {month_columns_.begin(), month_columns_.end()},
+                    .optional = {}};
+        }
+        return {};
+    }
+
+    static tables make_tables_()
+    {
+        return {core::layered_table{schema_(table::countries)},
+                core::layered_table{schema_(table::age_pyramid)},
+                core::layered_table{schema_(table::monthly_births)}};
+    }
+
+    // -- Row parsing (also the validation of layers) ------------------------
+
+    struct country_row
+    {
+        std::string cca2;
+        std::string name;
+        std::optional<double> le_male;
+        std::optional<double> le_female;
+        double csection_rate{0.0};
+    };
+
+    static country_row parse_country_(const core::tsv_row& row)
+    {
+        country_row c;
+        c.cca2 = row.get<std::string>("cca2");
+        c.name = row.get<std::string>("name");
+        c.csection_rate = row.get<double>("csection_rate");
+        if (c.csection_rate < 0.0 || c.csection_rate > 1.0)
+        {
+            throw row.error("csection_rate", "must be between 0 and 1");
+        }
+        for (const auto& [column, value] : {std::pair{"le_male", &c.le_male}, std::pair{"le_female", &c.le_female}})
+        {
+            if (!row.has(column)) continue;
+            const auto v = row.get<double>(column);
+            if (!(v > 0.0)) throw row.error(column, "must be positive");
+            *value = v;
+        }
+        return c;
+    }
+
+    // Weights by age, males then females.
+    struct pyramid_row
+    {
+        std::vector<double> male;
+        std::vector<double> female;
+    };
+
+    static pyramid_row parse_pyramid_(const core::tsv_row& row)
+    {
+        pyramid_row p;
+        const auto& columns = pyramid_columns_();
+        for (std::size_t i = 0; i < columns.size(); ++i)
+        {
+            const auto v = row.get<double>(columns[i]);
+            if (v < 0.0) throw row.error(columns[i], "must not be negative");
+            (i <= max_age_ ? p.male : p.female).push_back(v);
+        }
+        for (const auto* weights : {&p.male, &p.female})
+        {
+            double total = 0.0;
+            for (const double w : *weights) total += w;
+            if (!(total > 0.0))
+            {
+                throw row.error(weights == &p.male ? "m0" : "f0", "every age of this sex is 0");
+            }
+        }
+        return p;
+    }
+
+    static std::vector<double> parse_monthly_(const core::tsv_row& row)
+    {
+        std::vector<double> w;
+        double total = 0.0;
+        for (const auto column : month_columns_)
+        {
+            const auto v = row.get<double>(column);
+            if (v < 0.0) throw row.error(column, "must not be negative");
+            w.push_back(v);
+            total += v;
+        }
+        if (!(total > 0.0)) throw row.error("jan", "every month is 0");
+        return w;
+    }
+
+    static void validate_(table t, const core::tsv_row& row)
+    {
+        switch (t)
+        {
+        case table::countries: (void)parse_country_(row); break;
+        case table::age_pyramid: (void)parse_pyramid_(row); break;
+        case table::monthly_births: (void)parse_monthly_(row); break;
+        }
+    }
+
+    // -- Assembled data ------------------------------------------------------
 
     struct entry
     {
         std::string cca2;
-        std::string cca3;
         std::string name;
-        double le_male{0};
-        double le_female{0};
-        double csection_rate{0};
-        double total_male{0};
-        double total_female{0};
-
-        // Pre-built age distributions (indexed 0..MAX_AGE).
-        mutable std::discrete_distribution<unsigned> male_age_dist;
-        mutable std::discrete_distribution<unsigned> female_age_dist;
-
-        // Pre-built month distribution (indexed 0..11).
-        mutable std::discrete_distribution<unsigned> month_dist;
+        double le_male{0.0};
+        double le_female{0.0};
+        double csection_rate{0.0};
+        double total_male{0.0};
+        double total_female{0.0};
+        std::vector<double> male_weights;   // by age 0..100
+        std::vector<double> female_weights; // by age 0..100
+        core::discrete male_age{1.0};
+        core::discrete female_age{1.0};
+        core::discrete month{1.0};
     };
 
-    std::unordered_map<std::string, entry> _entries;
-
-    // Ordered cca2 list for random-country selection.
-    std::vector<std::string> _cca2_order;
-    mutable std::discrete_distribution<std::size_t> _country_dist;
-    mutable std::uniform_int_distribution<std::size_t> _country_uniform;
-
+    tables _tables{make_tables_()};
+    std::vector<entry> _entries; // countries-table order
+    std::map<std::string, std::size_t, std::less<>> _index;
+    core::discrete _country_dist{1.0};
     bool _weighted{true};
-    int _ref_year{};
-
-    static constexpr unsigned seed_shift_{32U};
-    static constexpr std::size_t max_age_{100};
-
-    static constexpr std::array<std::string_view, 3> probe_bases_{
-        "resources", "../resources", "birth-generator/resources"};
-
-    std::mt19937_64 _engine{std::random_device{}()};
+    std::chrono::year_month_day _reference{default_reference_date};
+    core::rng _engine{core::rng::from_entropy()};
 
     struct auto_probe_tag {};
 
-    explicit bthg(auto_probe_tag /*tag*/) : _ref_year(current_year_())
+    explicit bthg(auto_probe_tag /*tag*/)
     {
-        auto found = std::ranges::find_if(
-            probe_bases_, [](std::string_view p) {
-                return std::filesystem::exists(p) &&
-                       std::filesystem::is_directory(p);
-            });
-        if (found != probe_bases_.end())
+        if (!load(dataset::lite)) (void)load(dataset::full);
+    }
+
+    static std::span<const core::embedded_file> embedded_files_()
+    {
+#ifdef DASMIG_BIRTH_EMBED
+        return embedded::birthgen::files;
+#else
+        return {};
+#endif
+    }
+
+    static documents read_directory_(const std::filesystem::path& dir)
+    {
+        documents docs;
+        for (const auto t : all_tables_)
         {
-            const std::filesystem::path base{*found};
-            auto lite = base / "lite";
-            auto full = base / "full";
-            if (std::filesystem::is_regular_file(
-                    lite / "countries.tsv"))
+            const auto file = dir / file_name_(t);
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(file, ec))
             {
-                load(lite);
-            }
-            else if (std::filesystem::is_regular_file(
-                         full / "countries.tsv"))
-            {
-                load(full);
+                docs.at(index_(t)) = core::tsv_document::load(file);
             }
         }
+        return docs;
     }
 
-    // -- Helpers ----------------------------------------------------------
-
-    static int current_year_()
+    // Apply layers to copies of the tables, then commit: all or nothing.
+    // With @p reset (load), tables without a document are emptied.
+    void apply_(documents docs, core::layer_mode mode, bool reset)
     {
-        auto now = std::chrono::system_clock::now();
-        auto dp = std::chrono::floor<std::chrono::days>(now);
-        auto ymd = std::chrono::year_month_day{dp};
-        return static_cast<int>(ymd.year());
+        tables next = _tables;
+        for (const auto t : all_tables_)
+        {
+            auto& doc = docs.at(index_(t));
+            auto& tbl = next.at(index_(t));
+            if (!doc)
+            {
+                if (reset) tbl.clear();
+                continue;
+            }
+            (void)tbl.extend(std::move(*doc), mode, [t](const core::tsv_row& row) { validate_(t, row); });
+        }
+        rebuild_(next);
+        _tables = std::move(next);
     }
 
-    std::uint64_t draw_seed_()
+    // A country is generated when it has a countries row with life
+    // expectancy and an age pyramid; monthly weights default to uniform.
+    void rebuild_(const tables& t)
     {
-        return static_cast<std::uint64_t>(_engine());
+        std::map<std::string, const core::tsv_row*, std::less<>> pyramids;
+        std::map<std::string, const core::tsv_row*, std::less<>> months;
+        for (const auto& row : t.at(index_(table::age_pyramid)).rows()) pyramids.emplace(row["cca2"], &row);
+        for (const auto& row : t.at(index_(table::monthly_births)).rows()) months.emplace(row["cca2"], &row);
+
+        std::vector<entry> entries;
+        std::map<std::string, std::size_t, std::less<>> index;
+        std::vector<double> population;
+        for (const auto& row : t.at(index_(table::countries)).rows())
+        {
+            auto c = parse_country_(row);
+            const auto p = pyramids.find(c.cca2);
+            if (p == pyramids.end() || !c.le_male || !c.le_female) continue;
+            auto pyramid = parse_pyramid_(*p->second);
+            entry e;
+            e.cca2 = std::move(c.cca2);
+            e.name = std::move(c.name);
+            e.le_male = *c.le_male;
+            e.le_female = *c.le_female;
+            e.csection_rate = c.csection_rate;
+            for (const double w : pyramid.male) e.total_male += w;
+            for (const double w : pyramid.female) e.total_female += w;
+            e.male_age = core::discrete{pyramid.male};
+            e.female_age = core::discrete{pyramid.female};
+            e.male_weights = std::move(pyramid.male);
+            e.female_weights = std::move(pyramid.female);
+            const auto m = months.find(e.cca2);
+            e.month = m == months.end() ? core::discrete{std::vector<double>(12, 1.0)}
+                                        : core::discrete{parse_monthly_(*m->second)};
+            population.push_back(e.total_male + e.total_female);
+            index.emplace(e.cca2, entries.size());
+            entries.push_back(std::move(e));
+        }
+        _country_dist = population.empty() ? core::discrete{1.0} : core::discrete{population};
+        _entries = std::move(entries);
+        _index = std::move(index);
     }
 
-    [[nodiscard]] const entry& lookup_entry_(
-        std::string_view cca2) const
+    // -- Generation ----------------------------------------------------------
+
+    std::uint64_t draw_seed_() { return _engine(); }
+
+    void require_data_() const
     {
         if (_entries.empty())
         {
-            throw std::runtime_error(
-                "No birth data loaded. Call load() first.");
+            throw std::runtime_error("No birth data loaded. Call load() first.");
         }
-        auto it = _entries.find(std::string{cca2});
-        if (it == _entries.end())
-        {
-            throw std::invalid_argument(
-                std::string{"Unknown country code: "} += cca2);
-        }
-        return it->second;
     }
 
-    // Optional constraints passed to generate_().
-    struct gen_opts_
+    [[nodiscard]] const entry& lookup_entry_(std::string_view cca2) const
     {
-        bool fix_sex{false};
-        sex forced_sex{sex::male};
+        require_data_();
+        const auto it = _index.find(cca2);
+        if (it == _index.end())
+        {
+            throw std::invalid_argument(std::string{"Unknown country code: "} += cca2);
+        }
+        return _entries[it->second];
+    }
 
-        bool fix_year{false};
-        std::uint16_t forced_year{0};
+    [[nodiscard]] const entry& random_entry_(std::uint64_t call_seed) const
+    {
+        require_data_();
+        auto r = core::rng{call_seed}.split("country");
+        const auto idx = _weighted ? _country_dist(r)
+                                   : static_cast<std::size_t>(core::bounded(r, _entries.size()));
+        return _entries[idx];
+    }
 
-        bool fix_age_range{false};
+    // {} initializers let callers leave members out of designated
+    // initializers without -Wmissing-designated-field-initializers.
+    struct options
+    {
+        std::optional<dasmig::sex> sex{}; // NOLINT(readability-redundant-member-init)
+        std::optional<std::uint16_t> year{}; // NOLINT(readability-redundant-member-init)
         std::uint8_t age_min{0};
-        std::uint8_t age_max{100};
+        std::uint8_t age_max{static_cast<std::uint8_t>(max_age_)};
     };
 
-    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-    [[nodiscard]] birth generate_(const entry& e,
-                                  std::uint64_t call_seed,
-                                  const gen_opts_& opts) const
+    static unsigned days_in_(int year, unsigned month)
     {
-        effolkronium::random_local rng;
-        rng.seed(static_cast<std::mt19937::result_type>(
-            call_seed ^ (call_seed >> seed_shift_)));
+        return static_cast<unsigned>(
+            std::chrono::year_month_day_last{std::chrono::year{year} / std::chrono::month{month} /
+                                             std::chrono::last}
+                .day());
+    }
 
+    // Whether month/day falls after the reference date's month/day.
+    [[nodiscard]] bool after_reference_(unsigned month, unsigned day) const
+    {
+        const auto ref_m = static_cast<unsigned>(_reference.month());
+        const auto ref_d = static_cast<unsigned>(_reference.day());
+        return month > ref_m || (month == ref_m && day > ref_d);
+    }
+
+    // Draw a day in @p month such that the person is @p age at the reference
+    // date (or born in @p fixed_year), redrawing weekend days with
+    // probability csection_rate / 2, at most three times.
+    struct placed
+    {
+        int year;
+        unsigned day;
+    };
+
+    [[nodiscard]] placed place_(core::rng& r, const entry& e, unsigned month, unsigned age,
+                                std::optional<std::uint16_t> fixed_year) const
+    {
+        const int ref_year = static_cast<int>(_reference.year());
+        auto draw = [&]() -> placed {
+            if (fixed_year)
+            {
+                const int y = *fixed_year;
+                return {.year = y, .day = core::uniform_int(r, 1U, days_in_(y, month))};
+            }
+            for (;;)
+            {
+                const auto d = core::uniform_int(r, 1U, 31U);
+                const int y = ref_year - static_cast<int>(age) - (after_reference_(month, d) ? 1 : 0);
+                if (d <= days_in_(y, month)) return {.year = y, .day = d};
+            }
+        };
+        placed p = draw();
+        static constexpr int max_weekend_redraws = 3;
+        for (int attempt = 0; attempt < max_weekend_redraws; ++attempt)
+        {
+            const std::chrono::weekday wd{std::chrono::sys_days{
+                std::chrono::year{p.year} / std::chrono::month{month} / std::chrono::day{p.day}}};
+            const bool weekend = wd.iso_encoding() >= 6;
+            if (!weekend || !core::bernoulli(r, core::math::fenced(e.csection_rate * 0.5))) break;
+            p = draw();
+        }
+        return p;
+    }
+
+    [[nodiscard]] birth generate_(const entry& e, std::uint64_t call_seed, const options& opts) const
+    {
+        const core::rng call{call_seed};
         birth b;
-        b._seed = call_seed;
+        b._signature = {.seed = call_seed, .data = data_hash()};
         b.country_code = e.cca2;
 
-        // 1. Sex — fixed or weighted by total male:female population.
-        if (opts.fix_sex)
+        // 1. Sex, weighted by the male:female population.
+        if (opts.sex)
         {
-            b.bio_sex = opts.forced_sex;
+            b.bio_sex = *opts.sex;
         }
         else
         {
-            const double total = e.total_male + e.total_female;
-            const double male_prob =
-                (total > 0) ? (e.total_male / total) : 0.5;
-            std::bernoulli_distribution sex_dist(1.0 - male_prob);
-            b.bio_sex = sex_dist(rng.engine()) ? sex::female : sex::male;
+            auto r = call.split("sex");
+            const double female_share = e.total_female / (e.total_male + e.total_female);
+            b.bio_sex = core::bernoulli(r, female_share) ? sex::female : sex::male;
         }
+        const bool male = b.bio_sex == sex::male;
 
-        // 2. Age / year.
-        if (opts.fix_year)
+        // 2. Age (unless the year is fixed), from the pyramid or a range of it.
+        unsigned age = 0;
+        if (!opts.year)
         {
-            b.year = opts.forced_year;
-            const int age = _ref_year - static_cast<int>(b.year);
-            b.age = static_cast<std::uint8_t>(
-                std::clamp(age, 0, static_cast<int>(max_age_)));
-        }
-        else if (opts.fix_age_range)
-        {
-            // Rejection-sample within [age_min, age_max].
-            static constexpr unsigned max_rejection_tries_{200};
-            unsigned raw = (b.bio_sex == sex::male)
-                               ? e.male_age_dist(rng.engine())
-                               : e.female_age_dist(rng.engine());
-            for (unsigned r = 0; r < max_rejection_tries_; ++r)
+            auto r = call.split("age");
+            const auto& weights = male ? e.male_weights : e.female_weights;
+            if (opts.age_min == 0 && opts.age_max == max_age_)
             {
-                if (raw >= opts.age_min && raw <= opts.age_max) break;
-                raw = (b.bio_sex == sex::male)
-                          ? e.male_age_dist(rng.engine())
-                          : e.female_age_dist(rng.engine());
+                age = static_cast<unsigned>((male ? e.male_age : e.female_age)(r));
             }
-            // Clamp as fallback if rejection sampling exhausted.
-            b.age = static_cast<std::uint8_t>(
-                std::clamp(raw, static_cast<unsigned>(opts.age_min),
-                           static_cast<unsigned>(opts.age_max)));
-            b.year = static_cast<std::uint16_t>(_ref_year - b.age);
-        }
-        else
-        {
-            b.age = (b.bio_sex == sex::male)
-                        ? e.male_age_dist(rng.engine())
-                        : e.female_age_dist(rng.engine());
-            b.year = static_cast<std::uint16_t>(_ref_year - b.age);
-        }
-
-        // 3. Month — from seasonal weights.
-        b.month = static_cast<std::uint8_t>(
-            e.month_dist(rng.engine()) + 1);
-
-        // 4. Day within month.
-        auto yr = std::chrono::year{static_cast<int>(b.year)};
-        auto mo = std::chrono::month{b.month};
-        auto last_day = static_cast<unsigned>(
-            std::chrono::year_month_day_last{yr / mo / std::chrono::last}
-                .day());
-        std::uniform_int_distribution<unsigned> day_dist(1, last_day);
-
-        // Apply weekday deficit: weekend births are less likely in
-        // countries with high C-section / scheduled delivery rates.
-        static constexpr unsigned max_weekday_retries_{3};
-        static constexpr double weekday_deficit_scale_{0.5};
-        b.day = static_cast<std::uint8_t>(day_dist(rng.engine()));
-
-        std::chrono::weekday final_wd{};
-        for (unsigned attempt = 0; attempt < max_weekday_retries_;
-             ++attempt)
-        {
-            auto ymd = yr / mo / std::chrono::day{b.day};
-            final_wd = std::chrono::weekday{
-                std::chrono::sys_days{ymd}};
-            const unsigned iso = final_wd.iso_encoding(); // 1=Mon..7=Sun
-            if (iso >= 6) // Saturday or Sunday
+            else
             {
-                const double reject_p =
-                    e.csection_rate * weekday_deficit_scale_;
-                std::bernoulli_distribution reject(reject_p);
-                if (reject(rng.engine()))
-                {
-                    b.day = static_cast<std::uint8_t>(
-                        day_dist(rng.engine()));
-                    continue;
-                }
+                const std::vector<double> slice(weights.begin() + opts.age_min,
+                                                weights.begin() + opts.age_max + 1);
+                double total = 0.0;
+                for (const double w : slice) total += w;
+                const auto offset = total > 0.0 ? core::discrete{slice}(r)
+                                                : static_cast<std::size_t>(core::bounded(r, slice.size()));
+                age = opts.age_min + static_cast<unsigned>(offset);
             }
-            break;
         }
 
-        // 5. Weekday of final date.
-        b.weekday = static_cast<std::uint8_t>(
-            final_wd.c_encoding()); // 0=Sun..6=Sat
+        // 3. Month, from the seasonal weights.
+        {
+            auto r = call.split("month");
+            b.month = static_cast<std::uint8_t>(e.month(r) + 1);
+        }
 
-        // 6. Life expectancy remaining.
-        const double le = (b.bio_sex == sex::male) ? e.le_male : e.le_female;
+        // 4. Day (and year), with the weekend deficit.
+        {
+            auto r = call.split("day");
+            const auto p = place_(r, e, b.month, age, opts.year);
+            b.year = static_cast<std::uint16_t>(p.year);
+            b.day = static_cast<std::uint8_t>(p.day);
+            if (opts.year)
+            {
+                const int completed = static_cast<int>(_reference.year()) - p.year -
+                                      (after_reference_(b.month, p.day) ? 1 : 0);
+                age = static_cast<unsigned>(std::clamp(completed, 0, static_cast<int>(max_age_)));
+            }
+        }
+        b.age = static_cast<std::uint8_t>(age);
+
+        // 5. Weekday, remaining life expectancy, cohort.
+        const std::chrono::weekday wd{std::chrono::sys_days{
+            std::chrono::year{b.year} / std::chrono::month{b.month} / std::chrono::day{b.day}}};
+        b.weekday = static_cast<std::uint8_t>(wd.c_encoding());
+        const double le = male ? e.le_male : e.le_female;
         b.le_remaining = std::max(0.0, le - static_cast<double>(b.age));
-
-        // 7. Generational cohort.
         b.cohort = std::string{cohort_label_(b.year)};
-
         return b;
     }
 
@@ -644,191 +1000,6 @@ class bthg
         if (year <= 1996) return "Millennial";
         if (year <= 2012) return "Generation Z";
         return "Generation Alpha";
-    }
-
-    // -- Loading ----------------------------------------------------------
-
-    // Locale-independent double parser via std::from_chars.
-    static double parse_double_(std::string_view str,
-                                double fallback = 0.0)
-    {
-        if (str.empty()) { return fallback; }
-        double val{};
-        auto [ptr, ec] =
-            std::from_chars(str.data(), str.data() + str.size(), val); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        return ec == std::errc{} ? val : fallback;
-    }
-
-    static std::vector<std::string> split_tab_(const std::string& line)
-    {
-        std::vector<std::string> fields;
-        fields.reserve(16);
-        for (auto part : line | std::views::split('\t'))
-        {
-            fields.emplace_back(std::ranges::begin(part),
-                                std::ranges::end(part));
-        }
-        return fields;
-    }
-
-    void load_countries_(const std::filesystem::path& path)
-    {
-        if (!std::filesystem::is_regular_file(path)) return;
-
-        std::ifstream file{path};
-        if (!file.is_open()) return;
-
-        std::string line;
-        if (!std::getline(file, line)) return; // skip header
-
-        // Header: cca2 cca3 name region subregion latitude
-        //         independent le_male le_female csection_rate
-        static constexpr std::size_t min_fields{10};
-
-        while (std::getline(file, line))
-        {
-            if (line.empty()) continue;
-            if (line.back() == '\r') line.pop_back();
-
-            auto f = split_tab_(line);
-            if (f.size() < min_fields) continue;
-
-            entry e;
-            e.cca2 = std::move(f[0]);
-            e.cca3 = std::move(f[1]);
-            e.name = std::move(f[2]);
-            // fields 3..5 are region, subregion, latitude (metadata)
-            // field 6: independent
-            e.le_male = parse_double_(f[7]);
-            e.le_female = parse_double_(f[8]);
-            e.csection_rate = parse_double_(f[9]);
-
-            std::string key{e.cca2};
-            _entries.insert_or_assign(std::move(key), std::move(e));
-        }
-    }
-
-    void load_age_pyramid_(const std::filesystem::path& path)
-    {
-        if (!std::filesystem::is_regular_file(path)) return;
-
-        std::ifstream file{path};
-        if (!file.is_open()) return;
-
-        std::string line;
-        if (!std::getline(file, line)) return; // skip header
-
-        // Header: cca2  m0..m100  f0..f100  (203 columns)
-        static constexpr std::size_t expected_cols{1 + 2 * (max_age_ + 1)};
-
-        while (std::getline(file, line))
-        {
-            if (line.empty()) continue;
-            if (line.back() == '\r') line.pop_back();
-
-            auto f = split_tab_(line);
-            if (f.size() < expected_cols) continue;
-
-            auto it = _entries.find(f[0]);
-            if (it == _entries.end()) continue;
-
-            auto& e = it->second;
-
-            std::vector<double> male_w(max_age_ + 1);
-            std::vector<double> female_w(max_age_ + 1);
-
-            e.total_male = 0;
-            e.total_female = 0;
-
-            for (std::size_t a = 0; a <= max_age_; ++a)
-            {
-                const double mv = parse_double_(f[1 + a]);
-                const double fv = parse_double_(f[1 + (max_age_ + 1) + a]);
-                male_w[a] = std::max(mv, 0.0);
-                female_w[a] = std::max(fv, 0.0);
-                e.total_male += male_w[a];
-                e.total_female += female_w[a];
-            }
-
-            // Ensure at least some weight to avoid degenerate distributions.
-            if (e.total_male <= 0)
-            {
-                std::ranges::fill(male_w, 1.0);
-                e.total_male = static_cast<double>(max_age_ + 1);
-            }
-            if (e.total_female <= 0)
-            {
-                std::ranges::fill(female_w, 1.0);
-                e.total_female = static_cast<double>(max_age_ + 1);
-            }
-
-            e.male_age_dist = std::discrete_distribution<unsigned>(
-                male_w.begin(), male_w.end());
-            e.female_age_dist = std::discrete_distribution<unsigned>(
-                female_w.begin(), female_w.end());
-        }
-    }
-
-    void load_monthly_(const std::filesystem::path& path)
-    {
-        if (!std::filesystem::is_regular_file(path)) return;
-
-        std::ifstream file{path};
-        if (!file.is_open()) return;
-
-        std::string line;
-        if (!std::getline(file, line)) return; // skip header
-
-        // Header: cca2 jan feb ... dec (13 columns)
-        static constexpr std::size_t expected_cols{13};
-
-        while (std::getline(file, line))
-        {
-            if (line.empty()) continue;
-            if (line.back() == '\r') line.pop_back();
-
-            auto f = split_tab_(line);
-            if (f.size() < expected_cols) continue;
-
-            auto it = _entries.find(f[0]);
-            if (it == _entries.end()) continue;
-
-            std::vector<double> w(12);
-            for (std::size_t m = 0; m < 12; ++m)
-            {
-                w[m] = std::max(parse_double_(f[1 + m], 1.0), 0.0);
-            }
-            it->second.month_dist =
-                std::discrete_distribution<unsigned>(w.begin(), w.end());
-        }
-    }
-
-    void rebuild_indices_()
-    {
-        _cca2_order.clear();
-        _cca2_order.reserve(_entries.size());
-
-        std::vector<double> weights;
-        weights.reserve(_entries.size());
-
-        for (auto& [cca2, e] : _entries)
-        {
-            // Only include countries that have age pyramid data.
-            if (e.total_male + e.total_female <= 0) continue;
-
-            _cca2_order.push_back(cca2);
-            weights.push_back(
-                std::max(e.total_male + e.total_female, 1.0));
-        }
-
-        if (!_cca2_order.empty())
-        {
-            _country_dist = std::discrete_distribution<std::size_t>(
-                weights.begin(), weights.end());
-            _country_uniform =
-                std::uniform_int_distribution<std::size_t>(
-                    0, _cca2_order.size() - 1);
-        }
     }
 };
 
