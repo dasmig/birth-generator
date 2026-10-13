@@ -123,6 +123,29 @@ auto c = my_gen.get_birth();
 
 For the complete feature guide — fields, seeding, weighting, and more — see the **[Usage Guide](doc/usage.md)**.
 
+## Build and Test
+
+The library is header-only; the Makefile builds the example and test executables. Use GNU Make, a POSIX-compatible shell (on Windows, for example, WSL), and a C++23 compiler and standard library. The default compiler is `clang++`; CI uses Clang 18 with libstdc++ 14.
+
+Run these commands from the repository root, with the shipped `resources/` folder in place:
+
+```bash
+make all        # build build/example
+./build/example # run the example
+make test       # build and run the unit tests
+make test-embed # build and run the tests with the lite tier compiled in
+```
+
+The test framework is included in `tests/`; no separate installation is needed. `make test-embed` defines `DASMIG_BIRTH_EMBED` and uses the checked-in `dasmig/birthgen_data.hpp`.
+
+To select another compiler, override `CXX`, for example:
+
+```bash
+make all test test-embed CXX=clang++-18
+```
+
+CI also runs `make coverage` (requires `llvm-profdata` and `llvm-cov`), `make lint` (requires `clang-tidy`), and `make docs` (requires Doxygen).
+
 ## Generation Pipeline
 
 Each call to `get_birth()` runs this pipeline:
