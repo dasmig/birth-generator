@@ -29,11 +29,11 @@
 
 - **Weekday Deficit**. Weekend births are less probable in countries with high C-section / scheduled delivery rates, reflecting real-world hospital scheduling patterns.
 
-- **Deterministic Seeding**. Per-call `get_birth(seed)` for reproducible results, generator-level `seed()` / `unseed()` for deterministic sequences, and `birth::seed()` for replaying a previous generation.
+- **Deterministic Seeding**. Per-call `get_birth(request, seed)` for reproducible results, generator-level `seed()` / `unseed()` for deterministic sequences, and `birth::seed()` for replaying a previous generation with the same request.
 
-- **Uniform Selection**. Switch to equal-probability country selection with `weighted(false)`.
+- **Uniform Selection**. Use `birth_request{.weighted = false}` for equal-probability country selection.
 
-- **Per-Call Requests**. Use `birth_request` with `get_birth(request, seed)` to combine country, sex, year or age filters with per-call weighting and reference date, without changing generator settings.
+- **Per-Call Requests**. Use `birth_request` with `get_birth(request)` or `get_birth(request, seed)` to combine country, sex, year or age filters with per-call weighting and reference date. All generation choices live on the request.
 
 - **Identical Everywhere**. A seed gives the same birth on every compiler, standard library and CPU (GCC, Clang, MSVC, Emscripten; x86-64 and ARM64), checked by known-answer tests. Ages are relative to a fixed reference date, not the clock.
 
@@ -75,36 +75,40 @@ bthg::instance().load(dasmig::dataset::lite);  // ~195 sovereign states
 bthg::instance().load(dasmig::dataset::full);  // ~235 countries & territories
 
 // Generate a random birth (population-weighted country selection).
-auto b = bthg::instance().get_birth();
+auto b = bthg::instance().get_birth(dasmig::birth_request{});
 std::cout << b.date_string() << " — "
           << b.country_code << ", age " << +b.age
           << ", " << b.cohort << '\n';
 
 // Generate a birth from a specific country.
-auto us = bthg::instance().get_birth("US");
+auto us = bthg::instance().get_birth(dasmig::birth_request{.country_code = "US"});
 std::cout << "US: " << us << '\n';           // implicit string conversion
 
 // Request a specific sex.
-auto m = bthg::instance().get_birth("BR", dasmig::sex::male);
+auto m = bthg::instance().get_birth(dasmig::birth_request{
+    .country_code = "BR", .bio_sex = dasmig::sex::male});
 
 // Request a specific birth year.
-auto y = bthg::instance().get_birth("JP", dasmig::year_t{1990});
+auto y = bthg::instance().get_birth(dasmig::birth_request{
+    .country_code = "JP", .year = dasmig::year_t{1990}});
 
 // Request both sex and year.
-auto sy = bthg::instance().get_birth("DE", dasmig::sex::female, dasmig::year_t{1985});
+auto sy = bthg::instance().get_birth(dasmig::birth_request{
+    .country_code = "DE", .bio_sex = dasmig::sex::female, .year = dasmig::year_t{1985}});
 
 // Request an age range (e.g. adults 18–65).
-auto ar = bthg::instance().get_birth("US", dasmig::age_range{18, 65});
+auto ar = bthg::instance().get_birth(dasmig::birth_request{
+    .country_code = "US", .ages = dasmig::age_range{18, 65}});
 
 // Access all available fields.
 std::cout << "Sex:      " << (b.bio_sex == dasmig::sex::male ? "M" : "F") << '\n';
 std::cout << "Weekday:  " << +b.weekday << " (0=Sun..6=Sat)" << '\n';
 std::cout << "LE left:  " << b.le_remaining << " years" << '\n';
 
-// Deterministic generation — same seed always produces the same birth.
-auto seeded = bthg::instance().get_birth(42);
+// Deterministic generation — same request, seed and data produce the same birth.
+auto seeded = bthg::instance().get_birth(dasmig::birth_request{}, 42);
 
-// Per-call filters and settings, independent of weighted()/reference_date().
+// Per-call filters and settings.
 dasmig::birth_request request{
     .country_code = "US",
     .bio_sex = dasmig::sex::female,
@@ -115,7 +119,7 @@ auto requested = bthg::instance().get_birth(request, 42);
 auto requested_replay = bthg::instance().get_birth(request, requested.seed());
 
 // Replay a previous birth using its seed.
-auto replay = bthg::instance().get_birth(seeded.seed());
+auto replay = bthg::instance().get_birth(dasmig::birth_request{}, seeded.seed());
 
 // Seed the engine for a deterministic sequence.
 bthg::instance().seed(100);
@@ -123,17 +127,17 @@ bthg::instance().seed(100);
 bthg::instance().unseed(); // restore non-deterministic state
 
 // Switch to uniform random selection (equal probability per country).
-bthg::instance().weighted(false);
-auto uniform = bthg::instance().get_birth();
-bthg::instance().weighted(true);
+auto uniform = bthg::instance().get_birth(dasmig::birth_request{.weighted = false});
 
 // Independent instance — separate data and random engine.
 bthg my_gen;
 my_gen.load("path/to/resources/lite");
-auto c = my_gen.get_birth();
+auto c = my_gen.get_birth(dasmig::birth_request{});
 ```
 
-`birth_request{}` uses population-weighted selection and `bthg::default_reference_date` (2023-07-01), even if legacy generator settings were changed. Omit `country_code` for a random country; set `year = dasmig::year_t{1990}` for a fixed year instead of `ages`. Specifying both `year` and `ages` throws `std::invalid_argument`. Request calls do not advance the generator's random engine; replay requires the same request, seed and loaded data. Existing overloads and `weighted()` / `reference_date()` getter/setters remain compatible.
+`birth_request{}` uses population-weighted selection and `birth_request::default_reference_date` (2023-07-01). Omit `country_code` for a random country; set `year = dasmig::year_t{1990}` for a fixed year instead of `ages`. Specifying both `year` and `ages` throws `std::invalid_argument`. `get_birth(request)` draws a seed from the generator's random engine; `get_birth(request, seed)` does not advance it. Replay requires the same request, seed and loaded data.
+
+The positional/no-argument `get_birth` overloads and generator-wide `weighted()` / `reference_date()` getter/setters have been removed. Pass an explicit request on every call, including `birth_request{}` for defaults; move weighting and reference-date choices onto that request. Result fields, seeded output, data APIs and `seed()` / `unseed()` are unchanged. See [Migrating to request-first generation](doc/usage.md#migrating-to-request-first-generation).
 
 For the complete feature guide — fields, seeding, weighting, and more — see the **[Usage Guide](doc/usage.md)**.
 
@@ -148,6 +152,7 @@ make all        # build build/example
 ./build/example # run the example
 make test       # build and run the unit tests
 make test-embed # build and run the tests with the lite tier compiled in
+./build/test_runner "[request],[kat]" # targeted API/replay checks after make test
 ```
 
 The test framework is included in `tests/`; no separate installation is needed. `make test-embed` defines `DASMIG_BIRTH_EMBED` and uses the checked-in `dasmig/birthgen_data.hpp`.

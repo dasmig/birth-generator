@@ -1,6 +1,7 @@
 #include "catch_amalgamated.hpp"
 #include "../dasmig/birthgen.hpp"
 #include <chrono>
+#include <concepts>
 #include <string_view>
 #include <fstream>
 
@@ -9,7 +10,46 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <type_traits>
+#include <unordered_map>
 #include <vector>
+
+template <typename Generator, typename... Args>
+concept can_get_birth = requires(Generator& gen, Args... args) {
+    { gen.get_birth(args...) } -> std::same_as<dasmig::birth>;
+};
+
+template <typename Generator>
+concept has_weighted_setting = requires(Generator& gen) { gen.weighted(); } ||
+                               requires(Generator& gen) { gen.weighted(false); };
+
+template <typename Generator>
+concept has_reference_setting = requires(Generator& gen) { gen.reference_date(); } ||
+                                requires(Generator& gen) {
+                                    gen.reference_date(dasmig::birth_request::default_reference_date);
+                                };
+
+static_assert(std::is_aggregate_v<dasmig::birth_request>);
+static_assert(can_get_birth<dasmig::bthg, dasmig::birth_request>);
+static_assert(can_get_birth<const dasmig::bthg, dasmig::birth_request, std::uint64_t>);
+static_assert(!can_get_birth<const dasmig::bthg, dasmig::birth_request>);
+static_assert(!can_get_birth<dasmig::bthg>);
+static_assert(!can_get_birth<dasmig::bthg, std::uint64_t>);
+static_assert(!can_get_birth<dasmig::bthg, std::uint64_t, dasmig::birth_request>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, std::uint64_t>);
+static_assert(!can_get_birth<dasmig::bthg, dasmig::sex>);
+static_assert(!can_get_birth<dasmig::bthg, dasmig::sex, std::uint64_t>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::sex>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::sex, std::uint64_t>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::year_t>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::year_t, std::uint64_t>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::sex, dasmig::year_t>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::sex, dasmig::year_t, std::uint64_t>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::age_range>);
+static_assert(!can_get_birth<dasmig::bthg, std::string_view, dasmig::age_range, std::uint64_t>);
+static_assert(!has_weighted_setting<dasmig::bthg>);
+static_assert(!has_reference_setting<dasmig::bthg>);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -104,10 +144,10 @@ TEST_CASE("load(dataset) returns false for missing tier", "[loading][tier]")
 // Generation — basic
 // ---------------------------------------------------------------------------
 
-TEST_CASE("get_birth(cca2) returns a valid birth", "[generation]")
+TEST_CASE("country request returns a valid birth", "[generation]")
 {
     auto gen = make_loaded_generator();
-    auto b = gen.get_birth("US");
+    auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
 
     REQUIRE(b.country_code == "US");
     REQUIRE(b.year > 1900);
@@ -123,10 +163,10 @@ TEST_CASE("get_birth(cca2) returns a valid birth", "[generation]")
     REQUIRE(b.seed() != 0);
 }
 
-TEST_CASE("get_birth() returns any valid birth", "[generation]")
+TEST_CASE("default request returns any valid birth", "[generation]")
 {
     auto gen = make_loaded_generator();
-    auto b = gen.get_birth();
+    auto b = gen.get_birth(dasmig::birth_request{});
 
     REQUIRE_FALSE(b.country_code.empty());
     REQUIRE(b.month >= 1);
@@ -138,8 +178,8 @@ TEST_CASE("get_birth() returns any valid birth", "[generation]")
 TEST_CASE("get_birth with seed is deterministic", "[generation][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth("BR", std::uint64_t{42});
-    auto b2 = gen.get_birth("BR", std::uint64_t{42});
+    auto b1 = gen.get_birth(dasmig::birth_request{.country_code = "BR"}, std::uint64_t{42});
+    auto b2 = gen.get_birth(dasmig::birth_request{.country_code = "BR"}, std::uint64_t{42});
 
     REQUIRE(b1.year == b2.year);
     REQUIRE(b1.month == b2.month);
@@ -151,8 +191,8 @@ TEST_CASE("get_birth with seed is deterministic", "[generation][seed]")
 TEST_CASE("get_birth seed replay", "[generation][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth("JP");
-    auto b2 = gen.get_birth("JP", std::uint64_t{b1.seed()});
+    auto b1 = gen.get_birth(dasmig::birth_request{.country_code = "JP"});
+    auto b2 = gen.get_birth(dasmig::birth_request{.country_code = "JP"}, std::uint64_t{b1.seed()});
 
     REQUIRE(b1.year == b2.year);
     REQUIRE(b1.month == b2.month);
@@ -162,19 +202,19 @@ TEST_CASE("get_birth seed replay", "[generation][seed]")
 TEST_CASE("get_birth throws when empty", "[generation]")
 {
     dasmig::bthg gen;
-    REQUIRE_THROWS_AS(gen.get_birth("US"), std::runtime_error);
+    REQUIRE_THROWS_AS(gen.get_birth(dasmig::birth_request{.country_code = "US"}), std::runtime_error);
 }
 
-TEST_CASE("get_birth(seed) throws when empty", "[generation]")
+TEST_CASE("seeded request throws when empty", "[generation]")
 {
     const dasmig::bthg gen;
-    REQUIRE_THROWS_AS(gen.get_birth(42), std::runtime_error);
+    REQUIRE_THROWS_AS(gen.get_birth(dasmig::birth_request{}, 42), std::runtime_error);
 }
 
 TEST_CASE("get_birth throws for unknown country", "[generation]")
 {
     auto gen = make_loaded_generator();
-    REQUIRE_THROWS_AS(gen.get_birth("ZZ"), std::invalid_argument);
+    REQUIRE_THROWS_AS(gen.get_birth(dasmig::birth_request{.country_code = "ZZ"}), std::invalid_argument);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +228,7 @@ TEST_CASE("generated dates are always valid", "[generation][date]")
 
     for (int i = 0; i < 500; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         auto ymd = std::chrono::year{static_cast<int>(b.year)} /
                    std::chrono::month{b.month} /
                    std::chrono::day{b.day};
@@ -206,7 +246,7 @@ TEST_CASE("February dates respect leap years", "[generation][date]")
     bool found_feb = false;
     for (int i = 0; i < 2000; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         if (b.month == 2)
         {
             found_feb = true;
@@ -233,7 +273,7 @@ TEST_CASE("both sexes are generated", "[generation][sex]")
 
     for (int i = 0; i < 500; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         if (b.bio_sex == dasmig::sex::male) ++males;
         else ++females;
     }
@@ -257,7 +297,7 @@ TEST_CASE("ages span a reasonable range", "[generation][age]")
 
     for (int i = 0; i < 500; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         if (b.age < min_age) min_age = b.age;
         if (b.age > max_age) max_age = b.age;
     }
@@ -282,7 +322,7 @@ TEST_CASE("cohort labels are correct", "[generation][cohort]")
     std::set<std::string> cohorts;
     for (int i = 0; i < 1000; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         cohorts.insert(b.cohort);
     }
 
@@ -298,7 +338,7 @@ TEST_CASE("cohort labels are correct", "[generation][cohort]")
 TEST_CASE("implicit string conversion returns ISO date", "[conversion]")
 {
     auto gen = make_loaded_generator();
-    auto b = gen.get_birth("US", std::uint64_t{42});
+    auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"}, std::uint64_t{42});
     std::string s = b;
     REQUIRE(s == b.date_string());
     REQUIRE(s.size() == 10);
@@ -309,7 +349,7 @@ TEST_CASE("implicit string conversion returns ISO date", "[conversion]")
 TEST_CASE("ostream operator outputs ISO date", "[conversion]")
 {
     auto gen = make_loaded_generator();
-    auto b = gen.get_birth("US", std::uint64_t{42});
+    auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"}, std::uint64_t{42});
     std::ostringstream oss;
     oss << b;
     REQUIRE(oss.str() == b.date_string());
@@ -324,12 +364,12 @@ TEST_CASE("seed/unseed produces deterministic then random", "[seed]")
     auto gen = make_loaded_generator();
 
     gen.seed(100);
-    auto a = gen.get_birth("DE");
-    auto b = gen.get_birth("DE");
+    auto a = gen.get_birth(dasmig::birth_request{.country_code = "DE"});
+    auto b = gen.get_birth(dasmig::birth_request{.country_code = "DE"});
 
     gen.seed(100);
-    auto a2 = gen.get_birth("DE");
-    auto b2 = gen.get_birth("DE");
+    auto a2 = gen.get_birth(dasmig::birth_request{.country_code = "DE"});
+    auto b2 = gen.get_birth(dasmig::birth_request{.country_code = "DE"});
 
     REQUIRE(a.year == a2.year);
     REQUIRE(b.year == b2.year);
@@ -354,16 +394,6 @@ TEST_CASE("unseed is chainable", "[seed]")
     REQUIRE(&ref == &gen);
 }
 
-TEST_CASE("weighted is chainable", "[seed]")
-{
-    auto gen = make_loaded_generator();
-    auto& ref = gen.weighted(false);
-    REQUIRE(&ref == &gen);
-    REQUIRE_FALSE(gen.weighted());
-    gen.weighted(true);
-    REQUIRE(gen.weighted());
-}
-
 // ---------------------------------------------------------------------------
 // Weighted vs uniform country selection
 // ---------------------------------------------------------------------------
@@ -371,12 +401,12 @@ TEST_CASE("weighted is chainable", "[seed]")
 TEST_CASE("weighted mode favours populous countries", "[weighted]")
 {
     auto gen = make_loaded_generator();
-    gen.seed(0).weighted(true);
+    gen.seed(0);
 
     std::unordered_map<std::string, int> counts;
     for (int i = 0; i < 2000; ++i)
     {
-        auto b = gen.get_birth();
+        auto b = gen.get_birth(dasmig::birth_request{});
         counts[b.country_code]++;
     }
 
@@ -389,12 +419,12 @@ TEST_CASE("weighted mode favours populous countries", "[weighted]")
 TEST_CASE("uniform mode spreads across countries", "[weighted]")
 {
     auto gen = make_loaded_generator();
-    gen.seed(0).weighted(false);
+    gen.seed(0);
 
     std::set<std::string> seen;
     for (int i = 0; i < 2000; ++i)
     {
-        auto b = gen.get_birth();
+        auto b = gen.get_birth(dasmig::birth_request{.weighted = false});
         seen.insert(b.country_code);
     }
 
@@ -414,7 +444,7 @@ TEST_CASE("can generate for many different countries", "[generation]")
     for (const auto* code : {"US", "BR", "JP", "NG", "DE", "IN", "CN",
                               "AU", "ZA", "MX", "FR", "GB"})
     {
-        auto b = gen.get_birth(code);
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = code});
         REQUIRE(b.country_code == code);
         REQUIRE(b.month >= 1);
         REQUIRE(b.month <= 12);
@@ -432,7 +462,7 @@ TEST_CASE("life expectancy remaining is non-negative", "[generation][le]")
 
     for (int i = 0; i < 500; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         REQUIRE(b.le_remaining >= 0.0);
     }
     gen.unseed();
@@ -449,7 +479,7 @@ TEST_CASE("weekday field matches the actual calendar date", "[generation][weekda
 
     for (int i = 0; i < 500; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         auto ymd = std::chrono::year{static_cast<int>(b.year)} /
                    std::chrono::month{b.month} /
                    std::chrono::day{b.day};
@@ -471,7 +501,7 @@ TEST_CASE("month distribution is non-degenerate", "[generation][month]")
     std::array<int, 12> month_counts{};
     for (int i = 0; i < 3000; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         ++month_counts[b.month - 1];
     }
 
@@ -487,11 +517,11 @@ TEST_CASE("month distribution is non-degenerate", "[generation][month]")
 // Random country with seed is deterministic
 // ---------------------------------------------------------------------------
 
-TEST_CASE("get_birth(seed) selects same country deterministically", "[generation][seed]")
+TEST_CASE("seeded default request selects same country deterministically", "[generation][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth(std::uint64_t{9999});
-    auto b2 = gen.get_birth(std::uint64_t{9999});
+    auto b1 = gen.get_birth(dasmig::birth_request{}, std::uint64_t{9999});
+    auto b2 = gen.get_birth(dasmig::birth_request{}, std::uint64_t{9999});
 
     REQUIRE(b1.country_code == b2.country_code);
     REQUIRE(b1.year == b2.year);
@@ -511,7 +541,7 @@ TEST_CASE("date_string produces valid ISO 8601 format", "[conversion]")
 
     for (int i = 0; i < 100; ++i)
     {
-        auto b = gen.get_birth("US");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US"});
         auto ds = b.date_string();
 
         REQUIRE(ds.size() == 10);
@@ -555,7 +585,7 @@ TEST_CASE("life expectancy differs for male vs female", "[generation][le]")
 
     for (int i = 0; i < 1000; ++i)
     {
-        auto b = gen.get_birth("JP");
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "JP"});
         if (b.bio_sex == dasmig::sex::male)
         {
             sum_male_le += b.le_remaining;
@@ -582,14 +612,14 @@ TEST_CASE("life expectancy differs for male vs female", "[generation][le]")
 // Sex-specific generation
 // ===========================================================================
 
-TEST_CASE("get_birth(cca2, sex::male) always returns male", "[generation][sex]")
+TEST_CASE("male country request always returns male", "[generation][sex]")
 {
     auto gen = make_loaded_generator();
     gen.seed(0);
 
     for (int i = 0; i < 200; ++i)
     {
-        auto b = gen.get_birth("US", dasmig::sex::male);
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US", .bio_sex = dasmig::sex::male});
         REQUIRE(b.bio_sex == dasmig::sex::male);
         REQUIRE(b.country_code == "US");
         REQUIRE(b.month >= 1);
@@ -598,25 +628,25 @@ TEST_CASE("get_birth(cca2, sex::male) always returns male", "[generation][sex]")
     gen.unseed();
 }
 
-TEST_CASE("get_birth(cca2, sex::female) always returns female", "[generation][sex]")
+TEST_CASE("female country request always returns female", "[generation][sex]")
 {
     auto gen = make_loaded_generator();
     gen.seed(0);
 
     for (int i = 0; i < 200; ++i)
     {
-        auto b = gen.get_birth("JP", dasmig::sex::female);
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "JP", .bio_sex = dasmig::sex::female});
         REQUIRE(b.bio_sex == dasmig::sex::female);
         REQUIRE(b.country_code == "JP");
     }
     gen.unseed();
 }
 
-TEST_CASE("get_birth(cca2, sex, seed) is deterministic", "[generation][sex][seed]")
+TEST_CASE("seeded sex and country request is deterministic", "[generation][sex][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth("BR", dasmig::sex::female, std::uint64_t{777});
-    auto b2 = gen.get_birth("BR", dasmig::sex::female, std::uint64_t{777});
+    auto b1 = gen.get_birth(dasmig::birth_request{.country_code = "BR", .bio_sex = dasmig::sex::female}, std::uint64_t{777});
+    auto b2 = gen.get_birth(dasmig::birth_request{.country_code = "BR", .bio_sex = dasmig::sex::female}, std::uint64_t{777});
 
     REQUIRE(b1.bio_sex == dasmig::sex::female);
     REQUIRE(b1.year == b2.year);
@@ -625,25 +655,25 @@ TEST_CASE("get_birth(cca2, sex, seed) is deterministic", "[generation][sex][seed
     REQUIRE(b1.age == b2.age);
 }
 
-TEST_CASE("get_birth(sex) random country with fixed sex", "[generation][sex]")
+TEST_CASE("sex request selects random country with fixed sex", "[generation][sex]")
 {
     auto gen = make_loaded_generator();
     gen.seed(0);
 
     for (int i = 0; i < 100; ++i)
     {
-        auto b = gen.get_birth(dasmig::sex::male);
+        auto b = gen.get_birth(dasmig::birth_request{.bio_sex = dasmig::sex::male});
         REQUIRE(b.bio_sex == dasmig::sex::male);
         REQUIRE_FALSE(b.country_code.empty());
     }
     gen.unseed();
 }
 
-TEST_CASE("get_birth(sex, seed) is deterministic", "[generation][sex][seed]")
+TEST_CASE("seeded sex request is deterministic", "[generation][sex][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth(dasmig::sex::female, std::uint64_t{555});
-    auto b2 = gen.get_birth(dasmig::sex::female, std::uint64_t{555});
+    auto b1 = gen.get_birth(dasmig::birth_request{.bio_sex = dasmig::sex::female}, std::uint64_t{555});
+    auto b2 = gen.get_birth(dasmig::birth_request{.bio_sex = dasmig::sex::female}, std::uint64_t{555});
 
     REQUIRE(b1.bio_sex == dasmig::sex::female);
     REQUIRE(b1.country_code == b2.country_code);
@@ -656,14 +686,14 @@ TEST_CASE("get_birth(sex, seed) is deterministic", "[generation][sex][seed]")
 // Year-specific generation
 // ===========================================================================
 
-TEST_CASE("get_birth(cca2, year) fixes the birth year", "[generation][year]")
+TEST_CASE("year and country request fixes the birth year", "[generation][year]")
 {
     auto gen = make_loaded_generator();
     gen.seed(0);
 
     for (int i = 0; i < 200; ++i)
     {
-        auto b = gen.get_birth("US", dasmig::year_t{1990});
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US", .year = dasmig::year_t{1990}});
         REQUIRE(b.year == 1990);
         REQUIRE(b.country_code == "US");
         REQUIRE(b.month >= 1);
@@ -674,14 +704,14 @@ TEST_CASE("get_birth(cca2, year) fixes the birth year", "[generation][year]")
     gen.unseed();
 }
 
-TEST_CASE("get_birth(cca2, year) derives correct age", "[generation][year]")
+TEST_CASE("year and country request derives correct age", "[generation][year]")
 {
     // Ages are completed years at the reference date (default 2023-07-01),
     // not at today's date.
     auto gen = make_loaded_generator();
     for (std::uint64_t s = 0; s < 50; ++s)
     {
-        auto b = gen.get_birth("DE", dasmig::year_t{2000}, s);
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "DE", .year = dasmig::year_t{2000}}, s);
         const bool after_july_1 = b.month > 7 || (b.month == 7 && b.day > 1);
         REQUIRE(b.year == 2000);
         REQUIRE(b.age == (after_july_1 ? 22 : 23));
@@ -691,22 +721,23 @@ TEST_CASE("get_birth(cca2, year) derives correct age", "[generation][year]")
 TEST_CASE("reference_date moves ages, not the clock", "[generation][year]")
 {
     auto gen = make_loaded_generator();
-    REQUIRE(gen.reference_date() == dasmig::bthg::default_reference_date);
-    const auto before = gen.get_birth("DE", std::uint64_t{42});
-    gen.reference_date(std::chrono::year{2033} / std::chrono::July / std::chrono::day{1});
-    const auto after = gen.get_birth("DE", std::uint64_t{42});
+    dasmig::birth_request request{.country_code = "DE"};
+    REQUIRE(request.reference_date == dasmig::birth_request::default_reference_date);
+    const auto before = gen.get_birth(request, std::uint64_t{42});
+    request.reference_date = std::chrono::year{2033} / std::chrono::July / std::chrono::day{1};
+    const auto after = gen.get_birth(request, std::uint64_t{42});
     REQUIRE(after.age == before.age);          // same draw
     REQUIRE(after.year == before.year + 10);   // ten years later
     REQUIRE(after.month == before.month);
-    REQUIRE_THROWS_AS(gen.reference_date(std::chrono::year{2023} / std::chrono::February / std::chrono::day{30}),
-                      std::invalid_argument);
+    request.reference_date = std::chrono::year{2023} / std::chrono::February / std::chrono::day{30};
+    REQUIRE_THROWS_AS(gen.get_birth(request, 42), std::invalid_argument);
 }
 
-TEST_CASE("get_birth(cca2, year, seed) is deterministic", "[generation][year][seed]")
+TEST_CASE("seeded year and country request is deterministic", "[generation][year][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth("JP", dasmig::year_t{1985}, std::uint64_t{333});
-    auto b2 = gen.get_birth("JP", dasmig::year_t{1985}, std::uint64_t{333});
+    auto b1 = gen.get_birth(dasmig::birth_request{.country_code = "JP", .year = dasmig::year_t{1985}}, std::uint64_t{333});
+    auto b2 = gen.get_birth(dasmig::birth_request{.country_code = "JP", .year = dasmig::year_t{1985}}, std::uint64_t{333});
 
     REQUIRE(b1.year == 1985);
     REQUIRE(b1.month == b2.month);
@@ -721,7 +752,7 @@ TEST_CASE("get_birth dates are valid for fixed year", "[generation][year][date]"
 
     for (int i = 0; i < 300; ++i)
     {
-        auto b = gen.get_birth("BR", dasmig::year_t{2000});
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "BR", .year = dasmig::year_t{2000}});
         auto ymd = std::chrono::year{static_cast<int>(b.year)} /
                    std::chrono::month{b.month} /
                    std::chrono::day{b.day};
@@ -734,15 +765,15 @@ TEST_CASE("get_birth dates are valid for fixed year", "[generation][year][date]"
 // Sex + year generation
 // ===========================================================================
 
-TEST_CASE("get_birth(cca2, sex, year) fixes both", "[generation][sex][year]")
+TEST_CASE("sex and year request fixes both", "[generation][sex][year]")
 {
     auto gen = make_loaded_generator();
     gen.seed(0);
 
     for (int i = 0; i < 200; ++i)
     {
-        auto b = gen.get_birth("DE", dasmig::sex::female,
-                               dasmig::year_t{1985});
+        auto b = gen.get_birth(dasmig::birth_request{
+            .country_code = "DE", .bio_sex = dasmig::sex::female, .year = dasmig::year_t{1985}});
         REQUIRE(b.bio_sex == dasmig::sex::female);
         REQUIRE(b.year == 1985);
         REQUIRE(b.country_code == "DE");
@@ -752,13 +783,13 @@ TEST_CASE("get_birth(cca2, sex, year) fixes both", "[generation][sex][year]")
     gen.unseed();
 }
 
-TEST_CASE("get_birth(cca2, sex, year, seed) is deterministic", "[generation][sex][year][seed]")
+TEST_CASE("seeded sex and year request is deterministic", "[generation][sex][year][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth("IN", dasmig::sex::male,
-                            dasmig::year_t{1970}, std::uint64_t{111});
-    auto b2 = gen.get_birth("IN", dasmig::sex::male,
-                            dasmig::year_t{1970}, std::uint64_t{111});
+    const dasmig::birth_request request{
+        .country_code = "IN", .bio_sex = dasmig::sex::male, .year = dasmig::year_t{1970}};
+    auto b1 = gen.get_birth(request, std::uint64_t{111});
+    auto b2 = gen.get_birth(request, std::uint64_t{111});
 
     REQUIRE(b1.bio_sex == dasmig::sex::male);
     REQUIRE(b1.year == 1970);
@@ -766,17 +797,20 @@ TEST_CASE("get_birth(cca2, sex, year, seed) is deterministic", "[generation][sex
     REQUIRE(b1.day == b2.day);
 }
 
-TEST_CASE("get_birth(cca2, sex, year) cohort matches year", "[generation][sex][year][cohort]")
+TEST_CASE("sex and year request cohort matches year", "[generation][sex][year][cohort]")
 {
     auto gen = make_loaded_generator();
 
-    auto b1 = gen.get_birth("US", dasmig::sex::male, dasmig::year_t{1950});
+    auto b1 = gen.get_birth(dasmig::birth_request{
+        .country_code = "US", .bio_sex = dasmig::sex::male, .year = dasmig::year_t{1950}});
     REQUIRE(b1.cohort == "Baby Boomer");
 
-    auto b2 = gen.get_birth("US", dasmig::sex::female, dasmig::year_t{2005});
+    auto b2 = gen.get_birth(dasmig::birth_request{
+        .country_code = "US", .bio_sex = dasmig::sex::female, .year = dasmig::year_t{2005}});
     REQUIRE(b2.cohort == "Generation Z");
 
-    auto b3 = gen.get_birth("US", dasmig::sex::male, dasmig::year_t{2020});
+    auto b3 = gen.get_birth(dasmig::birth_request{
+        .country_code = "US", .bio_sex = dasmig::sex::male, .year = dasmig::year_t{2020}});
     REQUIRE(b3.cohort == "Generation Alpha");
 }
 
@@ -784,14 +818,14 @@ TEST_CASE("get_birth(cca2, sex, year) cohort matches year", "[generation][sex][y
 // Age-range generation
 // ===========================================================================
 
-TEST_CASE("get_birth(cca2, age_range) bounds the age", "[generation][age_range]")
+TEST_CASE("age range request bounds the age", "[generation][age_range]")
 {
     auto gen = make_loaded_generator();
     gen.seed(0);
 
     for (int i = 0; i < 500; ++i)
     {
-        auto b = gen.get_birth("US", dasmig::age_range{18, 65});
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US", .ages = dasmig::age_range{18, 65}});
         REQUIRE(b.age >= 18);
         REQUIRE(b.age <= 65);
         REQUIRE(b.country_code == "US");
@@ -806,20 +840,18 @@ TEST_CASE("get_birth age range narrow band", "[generation][age_range]")
 
     for (int i = 0; i < 100; ++i)
     {
-        auto b = gen.get_birth("JP", dasmig::age_range{25, 30});
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "JP", .ages = dasmig::age_range{25, 30}});
         REQUIRE(b.age >= 25);
         REQUIRE(b.age <= 30);
     }
     gen.unseed();
 }
 
-TEST_CASE("get_birth(cca2, age_range, seed) is deterministic", "[generation][age_range][seed]")
+TEST_CASE("seeded age range request is deterministic", "[generation][age_range][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth("BR", dasmig::age_range{20, 40},
-                            std::uint64_t{888});
-    auto b2 = gen.get_birth("BR", dasmig::age_range{20, 40},
-                            std::uint64_t{888});
+    auto b1 = gen.get_birth(dasmig::birth_request{.country_code = "BR", .ages = dasmig::age_range{20, 40}}, std::uint64_t{888});
+    auto b2 = gen.get_birth(dasmig::birth_request{.country_code = "BR", .ages = dasmig::age_range{20, 40}}, std::uint64_t{888});
 
     REQUIRE(b1.age >= 20);
     REQUIRE(b1.age <= 40);
@@ -836,7 +868,7 @@ TEST_CASE("get_birth age range dates are valid", "[generation][age_range][date]"
 
     for (int i = 0; i < 300; ++i)
     {
-        auto b = gen.get_birth("US", dasmig::age_range{0, 100});
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US", .ages = dasmig::age_range{0, 100}});
         auto ymd = std::chrono::year{static_cast<int>(b.year)} /
                    std::chrono::month{b.month} /
                    std::chrono::day{b.day};
@@ -849,7 +881,7 @@ TEST_CASE("get_birth age range throws when min > max", "[generation][age_range]"
 {
     auto gen = make_loaded_generator();
     REQUIRE_THROWS_AS(
-        gen.get_birth("US", dasmig::age_range{50, 20}),
+        gen.get_birth(dasmig::birth_request{.country_code = "US", .ages = dasmig::age_range{50, 20}}),
         std::invalid_argument);
 }
 
@@ -860,21 +892,21 @@ TEST_CASE("get_birth age range single age", "[generation][age_range]")
 
     for (int i = 0; i < 50; ++i)
     {
-        auto b = gen.get_birth("US", dasmig::age_range{30, 30});
+        auto b = gen.get_birth(dasmig::birth_request{.country_code = "US", .ages = dasmig::age_range{30, 30}});
         REQUIRE(b.age == 30);
     }
     gen.unseed();
 }
 
 // ===========================================================================
-// Seed round-trip for random-country overload
+// Seed round-trip for a random-country request
 // ===========================================================================
 
-TEST_CASE("get_birth() seed round-trip", "[generation][seed]")
+TEST_CASE("default request seed round-trip", "[generation][seed]")
 {
     auto gen = make_loaded_generator();
-    auto b1 = gen.get_birth();
-    auto b2 = gen.get_birth(b1.seed());
+    auto b1 = gen.get_birth(dasmig::birth_request{});
+    auto b2 = gen.get_birth(dasmig::birth_request{}, b1.seed());
 
     REQUIRE(b1.country_code == b2.country_code);
     REQUIRE(b1.year == b2.year);
@@ -886,47 +918,16 @@ TEST_CASE("get_birth() seed round-trip", "[generation][seed]")
 // Per-call requests
 // ---------------------------------------------------------------------------
 
-TEST_CASE("birth_request defaults match legacy generation", "[request][seed]")
+TEST_CASE("birth_request defaults preserve population weighting and reference date", "[request]")
 {
-    const auto gen = make_loaded_generator();
     const dasmig::birth_request request;
     REQUIRE_FALSE(request.country_code);
     REQUIRE_FALSE(request.bio_sex);
     REQUIRE_FALSE(request.year);
     REQUIRE_FALSE(request.ages);
     REQUIRE(request.weighted);
+    REQUIRE(request.reference_date == std::chrono::year{2023} / std::chrono::July / std::chrono::day{1});
     REQUIRE(request.reference_date == dasmig::bthg::default_reference_date);
-
-    for (std::uint64_t s = 0; s < 100; ++s)
-    {
-        REQUIRE(gen.get_birth(request, s).to_json() == gen.get_birth(s).to_json());
-    }
-}
-
-TEST_CASE("birth_request filters match every seeded legacy overload", "[request][seed]")
-{
-    const auto gen = make_loaded_generator();
-    for (std::uint64_t s = 0; s < 100; ++s)
-    {
-        REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "US"}, s).to_json() ==
-                gen.get_birth("US", s).to_json());
-        for (const auto bio_sex : {dasmig::sex::male, dasmig::sex::female})
-        {
-            REQUIRE(gen.get_birth(dasmig::birth_request{.bio_sex = bio_sex}, s).to_json() ==
-                    gen.get_birth(bio_sex, s).to_json());
-            REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "JP", .bio_sex = bio_sex}, s).to_json() ==
-                    gen.get_birth("JP", bio_sex, s).to_json());
-            REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "DE", .bio_sex = bio_sex,
-                                                       .year = dasmig::year_t{1985}}, s).to_json() ==
-                    gen.get_birth("DE", bio_sex, dasmig::year_t{1985}, s).to_json());
-        }
-        REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "US",
-                                                   .year = dasmig::year_t{1990}}, s).to_json() ==
-                gen.get_birth("US", dasmig::year_t{1990}, s).to_json());
-        REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "BR",
-                                                   .ages = dasmig::age_range{18, 65}}, s).to_json() ==
-                gen.get_birth("BR", dasmig::age_range{18, 65}, s).to_json());
-    }
 }
 
 TEST_CASE("birth_request combines sex and ages for fixed or random countries", "[request]")
@@ -963,7 +964,7 @@ TEST_CASE("birth_request fixes year with a random country", "[request][year]")
         const auto b = gen.get_birth(request, s);
         REQUIRE(b.year == 2000);
         REQUIRE(b.bio_sex == dasmig::sex::female);
-        REQUIRE(b.country_code == gen.get_birth(s).country_code);
+        REQUIRE(b.country_code == gen.get_birth(dasmig::birth_request{}, s).country_code);
         const bool after_reference = b.month > 7 || (b.month == 7 && b.day > 1);
         REQUIRE(b.age == (after_reference ? 22 : 23));
     }
@@ -981,12 +982,14 @@ TEST_CASE("birth_request age ranges preserve clamping and single ages", "[reques
             const auto b = gen.get_birth(request, s);
             REQUIRE(b.age >= std::min(range.min, std::uint8_t{100}));
             REQUIRE(b.age <= std::min(range.max, std::uint8_t{100}));
-            REQUIRE(b.to_json() == gen.get_birth("US", range, s).to_json());
+            const auto born = std::chrono::year{b.year} / std::chrono::month{b.month} /
+                              std::chrono::day{b.day};
+            REQUIRE(born.ok());
         }
     }
 }
 
-TEST_CASE("birth_request weighting matches legacy selection and distributions", "[request][weighted]")
+TEST_CASE("birth_request weighting controls country distributions", "[request][weighted]")
 {
     auto gen = make_loaded_generator();
     int weighted_big = 0;
@@ -994,12 +997,10 @@ TEST_CASE("birth_request weighting matches legacy selection and distributions", 
     std::set<std::string> uniform_countries;
     for (const bool weighted : {true, false})
     {
-        gen.weighted(weighted);
         const dasmig::birth_request request{.weighted = weighted};
         for (std::uint64_t s = 0; s < 2000; ++s)
         {
             const auto b = gen.get_birth(request, s);
-            REQUIRE(b.to_json() == gen.get_birth(s).to_json());
             const bool big = b.country_code == "IN" || b.country_code == "CN";
             if (weighted) weighted_big += big;
             else
@@ -1018,13 +1019,11 @@ TEST_CASE("birth_request weighting matches legacy selection and distributions", 
 
 TEST_CASE("birth_request reference date controls exact ages and placement", "[request][reference]")
 {
-    auto legacy = make_loaded_generator();
     const auto gen = make_loaded_generator();
     for (const auto reference : {std::chrono::year{2040} / std::chrono::January / std::chrono::day{1},
                                  std::chrono::year{2024} / std::chrono::February / std::chrono::day{29},
                                  std::chrono::year{2033} / std::chrono::July / std::chrono::day{1}})
     {
-        legacy.reference_date(reference);
         const dasmig::birth_request request{
             .country_code = "BR", .bio_sex = dasmig::sex::female,
             .ages = dasmig::age_range{18, 65}, .reference_date = reference};
@@ -1041,15 +1040,15 @@ TEST_CASE("birth_request reference date controls exact ages and placement", "[re
                 --completed;
             }
             REQUIRE(b.age == completed);
-            const auto free = gen.get_birth(dasmig::birth_request{.country_code = "BR",
-                                                                 .reference_date = reference}, s);
-            REQUIRE(free.to_json() == legacy.get_birth("BR", s).to_json());
             const auto fixed = gen.get_birth(dasmig::birth_request{
                 .country_code = "BR", .year = dasmig::year_t{2000}, .reference_date = reference}, s);
-            REQUIRE(fixed.to_json() == legacy.get_birth("BR", dasmig::year_t{2000}, s).to_json());
+            REQUIRE(fixed.year == 2000);
+            const bool after_reference = std::chrono::month_day{std::chrono::month{fixed.month},
+                                                                std::chrono::day{fixed.day}} >
+                                         std::chrono::month_day{reference.month(), reference.day()};
+            REQUIRE(fixed.age == static_cast<int>(reference.year()) - 2000 - after_reference);
         }
     }
-    REQUIRE(gen.reference_date() == dasmig::bthg::default_reference_date);
 }
 
 TEST_CASE("birth_request preserves fixed year age clamping", "[request][year]")
@@ -1060,7 +1059,9 @@ TEST_CASE("birth_request preserves fixed year age clamping", "[request][year]")
         const auto b = gen.get_birth(dasmig::birth_request{.country_code = "US", .year = year}, 42);
         REQUIRE(b.year == year.value);
         REQUIRE(b.age == (year.value == 1900 ? 100 : 0));
-        REQUIRE(b.to_json() == gen.get_birth("US", year, 42).to_json());
+        const auto born = std::chrono::year{b.year} / std::chrono::month{b.month} /
+                          std::chrono::day{b.day};
+        REQUIRE(born.ok());
     }
 }
 
@@ -1114,22 +1115,17 @@ TEST_CASE("birth_request settings and failures cannot leak into subsequent calls
 {
     auto gen = make_loaded_generator();
     auto baseline = make_loaded_generator();
-    const auto reference = std::chrono::year{2030} / std::chrono::December / std::chrono::day{31};
-    const bool legacy_weighted = GENERATE(true, false);
-    gen.weighted(legacy_weighted).reference_date(reference).seed(73);
-    baseline.weighted(legacy_weighted).reference_date(reference).seed(73);
-    const auto legacy_before = gen.get_birth(42).to_json();
+    const bool weighted = GENERATE(true, false);
+    gen.seed(73);
+    baseline.seed(73);
     const auto request_before = gen.get_birth(dasmig::birth_request{}, 42).to_json();
 
     const dasmig::birth_request request{
-        .bio_sex = dasmig::sex::female, .ages = dasmig::age_range{30, 30}, .weighted = !legacy_weighted,
+        .bio_sex = dasmig::sex::female, .ages = dasmig::age_range{30, 30}, .weighted = weighted,
         .reference_date = std::chrono::year{2040} / std::chrono::January / std::chrono::day{1}};
     const auto result = gen.get_birth(request, 42);
     REQUIRE(result.age == 30);
     REQUIRE(gen.get_birth(dasmig::birth_request{}, 42).to_json() == request_before);
-    REQUIRE(gen.get_birth(42).to_json() == legacy_before);
-    REQUIRE(gen.weighted() == legacy_weighted);
-    REQUIRE(gen.reference_date() == reference);
     REQUIRE(gen.data_hash() == baseline.data_hash());
     REQUIRE(gen.country_count() == baseline.country_count());
 
@@ -1140,29 +1136,47 @@ TEST_CASE("birth_request settings and failures cannot leak into subsequent calls
     REQUIRE_THROWS_AS(gen.get_birth(dasmig::birth_request{
         .country_code = "ZZ", .reference_date = dasmig::bthg::default_reference_date}, 42),
         std::invalid_argument);
-    REQUIRE(gen.weighted() == legacy_weighted);
-    REQUIRE(gen.reference_date() == reference);
     for (int i = 0; i < 10; ++i)
     {
-        REQUIRE(gen.get_birth().to_json() == baseline.get_birth().to_json());
+        REQUIRE(gen.get_birth(dasmig::birth_request{}).to_json() ==
+                baseline.get_birth(dasmig::birth_request{}).to_json());
     }
 
-    gen.weighted(true).reference_date(dasmig::bthg::default_reference_date);
     REQUIRE(gen.get_birth(dasmig::birth_request{}, 42).to_json() == request_before);
     REQUIRE(gen.get_birth(request, 42).to_json() == result.to_json());
 }
 
-TEST_CASE("legacy unseeded overloads replay through requests with compatibility settings", "[request][seed]")
+TEST_CASE("random requests validate filters with the same errors as seeded requests", "[request][errors]")
+{
+    auto gen = make_loaded_generator();
+    const std::array<dasmig::birth_request, 5> requests{{
+        {.country_code = "ZZ"},
+        {.country_code = ""},
+        {.ages = dasmig::age_range{50, 20}},
+        {.year = dasmig::year_t{1990}, .ages = dasmig::age_range{18, 65}},
+        {.reference_date = std::chrono::year{2023} / std::chrono::February / std::chrono::day{30}}}};
+    const std::array messages{
+        "Unknown country code: ZZ", "Unknown country code: ",
+        "age_range: min must be <= max", "birth_request: year and ages are mutually exclusive",
+        "reference_date: not a valid date"};
+    for (std::size_t i = 0; i < requests.size(); ++i)
+    {
+        REQUIRE_THROWS_AS(gen.get_birth(requests[i]), std::invalid_argument);
+        REQUIRE_THROWS_WITH(gen.get_birth(requests[i]), messages[i]);
+        REQUIRE_THROWS_WITH(gen.get_birth(requests[i], 42), messages[i]);
+    }
+
+    dasmig::bthg empty;
+    REQUIRE_THROWS_WITH(empty.get_birth(dasmig::birth_request{}),
+                        "No birth data loaded. Call load() first.");
+}
+
+TEST_CASE("random requests apply all filters and replay full results", "[request][seed]")
 {
     auto gen = make_loaded_generator();
     const auto reference = std::chrono::year{2040} / std::chrono::January / std::chrono::day{1};
-    gen.weighted(false).reference_date(reference).seed(123);
-    const std::array births{
-        gen.get_birth(), gen.get_birth("US"), gen.get_birth(dasmig::sex::female),
-        gen.get_birth("JP", dasmig::sex::male), gen.get_birth("DE", dasmig::year_t{1990}),
-        gen.get_birth("BR", dasmig::sex::female, dasmig::year_t{1985}),
-        gen.get_birth("US", dasmig::age_range{18, 65})};
-    const std::array<dasmig::birth_request, 7> requests{{
+    gen.seed(123);
+    const std::array<dasmig::birth_request, 8> requests{{
         {.weighted = false, .reference_date = reference},
         {.country_code = "US", .weighted = false, .reference_date = reference},
         {.bio_sex = dasmig::sex::female, .weighted = false, .reference_date = reference},
@@ -1170,10 +1184,48 @@ TEST_CASE("legacy unseeded overloads replay through requests with compatibility 
         {.country_code = "DE", .year = dasmig::year_t{1990}, .weighted = false, .reference_date = reference},
         {.country_code = "BR", .bio_sex = dasmig::sex::female, .year = dasmig::year_t{1985},
          .weighted = false, .reference_date = reference},
-        {.country_code = "US", .ages = dasmig::age_range{18, 65}, .weighted = false, .reference_date = reference}}};
-    for (std::size_t i = 0; i < births.size(); ++i)
+        {.country_code = "US", .ages = dasmig::age_range{18, 65}, .weighted = false, .reference_date = reference},
+        {.bio_sex = dasmig::sex::female, .ages = dasmig::age_range{30, 30},
+         .weighted = false, .reference_date = reference}}};
+    for (const auto& request : requests)
     {
-        REQUIRE(gen.get_birth(requests[i], births[i].seed()).to_json() == births[i].to_json());
+        const auto b = gen.get_birth(request);
+        REQUIRE(gen.get_birth(request, b.seed()).to_json() == b.to_json());
+        REQUIRE(b.signature().data == gen.data_hash());
+        if (request.country_code) REQUIRE(b.country_code == *request.country_code);
+        if (request.bio_sex) REQUIRE(b.bio_sex == *request.bio_sex);
+        if (request.year) REQUIRE(b.year == request.year->value);
+        if (request.ages)
+        {
+            REQUIRE(b.age >= request.ages->min);
+            REQUIRE(b.age <= request.ages->max);
+        }
+        const bool after_reference = b.month > 1 || (b.month == 1 && b.day > 1);
+        REQUIRE(b.age == 2040 - b.year - after_reference);
+    }
+}
+
+TEST_CASE("random request choices do not affect subsequent requests", "[request][isolation]")
+{
+    auto gen = make_loaded_generator();
+    auto baseline = make_loaded_generator();
+    gen.seed(73);
+    baseline.seed(73);
+    const dasmig::birth_request custom{
+        .country_code = "JP", .bio_sex = dasmig::sex::female, .ages = dasmig::age_range{30, 30},
+        .weighted = false,
+        .reference_date = std::chrono::year{2040} / std::chrono::January / std::chrono::day{1}};
+    const auto changed = gen.get_birth(custom);
+    const auto original = baseline.get_birth(dasmig::birth_request{});
+    REQUIRE(changed.seed() == original.seed());
+    REQUIRE(changed.country_code == "JP");
+    REQUIRE(changed.bio_sex == dasmig::sex::female);
+    REQUIRE(changed.age == 30);
+    REQUIRE(changed.year == (changed.month == 1 && changed.day == 1 ? 2010 : 2009));
+    for (int i = 0; i < 10; ++i)
+    {
+        REQUIRE(gen.get_birth(dasmig::birth_request{}).to_json() ==
+                baseline.get_birth(dasmig::birth_request{}).to_json());
     }
 }
 
@@ -1232,26 +1284,28 @@ TEST_CASE("known answers for fixed seeds", "[kat]")
     auto gen = load_lite_dir();
     REQUIRE(gen.data_hash() == 0x99276bbdb2b0e563ULL);
 
-    REQUIRE(gen.get_birth("US", std::uint64_t{1}).to_json() ==
+    REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "US"}, std::uint64_t{1}).to_json() ==
             R"({"country_code":"US","date":"1999-05-19","year":1999,"month":5,"day":19,"age":24,)"
             R"("sex":"male","weekday":3,"le_remaining":52.900000000000006,"cohort":"Generation Z",)"
             R"("signature":{"seed":"0000000000000001","data":"99276bbdb2b0e563"}})");
-    REQUIRE(gen.get_birth("JP", dasmig::sex::female, dasmig::year_t{1990}, std::uint64_t{2}).date_string() ==
+    REQUIRE(gen.get_birth(dasmig::birth_request{
+                .country_code = "JP", .bio_sex = dasmig::sex::female, .year = dasmig::year_t{1990}},
+                std::uint64_t{2}).date_string() ==
             "1990-12-04");
-    REQUIRE(gen.get_birth(std::uint64_t{3}).to_json() ==
+    REQUIRE(gen.get_birth(dasmig::birth_request{}, std::uint64_t{3}).to_json() ==
             R"({"country_code":"IN","date":"2013-08-19","year":2013,"month":8,"day":19,"age":9,)"
             R"("sex":"male","weekday":1,"le_remaining":61.5,"cohort":"Generation Alpha",)"
             R"("signature":{"seed":"0000000000000003","data":"99276bbdb2b0e563"}})");
-    REQUIRE(gen.get_birth("BR", dasmig::age_range{.min = 18, .max = 65}, std::uint64_t{4}).date_string() ==
+    REQUIRE(gen.get_birth(dasmig::birth_request{
+                .country_code = "BR", .ages = dasmig::age_range{.min = 18, .max = 65}},
+                std::uint64_t{4}).date_string() ==
             "1982-04-23");
-    gen.weighted(false);
-    REQUIRE(gen.get_birth(std::uint64_t{5}).country_code == "HN");
-    gen.weighted(true);
+    REQUIRE(gen.get_birth(dasmig::birth_request{.weighted = false}, std::uint64_t{5}).country_code == "HN");
 
     std::uint64_t h = 0xcbf29ce484222325ULL;
     for (std::uint64_t s = 0; s < 10000; ++s)
     {
-        for (const char c : gen.get_birth(s).to_json())
+        for (const char c : gen.get_birth(dasmig::birth_request{}, s).to_json())
         {
             h ^= static_cast<unsigned char>(c);
             h *= 0x100000001b3ULL;
@@ -1263,10 +1317,10 @@ TEST_CASE("known answers for fixed seeds", "[kat]")
 TEST_CASE("ages are exact at the reference date", "[generation][age]")
 {
     auto gen = make_loaded_generator();
-    const auto ref = gen.reference_date();
+    const auto ref = dasmig::birth_request::default_reference_date;
     for (std::uint64_t s = 0; s < 2000; ++s)
     {
-        const auto b = gen.get_birth("NG", s);
+        const auto b = gen.get_birth(dasmig::birth_request{.country_code = "NG"}, s);
         const auto born = std::chrono::year{b.year} / std::chrono::month{b.month} / std::chrono::day{b.day};
         REQUIRE(born.ok());
         int completed = static_cast<int>(ref.year()) - b.year;
@@ -1284,8 +1338,8 @@ TEST_CASE("forcing the sex leaves the other draws unchanged", "[generation][sex]
     auto gen = make_loaded_generator();
     for (std::uint64_t s = 0; s < 200; ++s)
     {
-        const auto free = gen.get_birth("US", s);
-        REQUIRE(gen.get_birth("US", free.bio_sex, s).to_json() == free.to_json());
+        const auto free = gen.get_birth(dasmig::birth_request{.country_code = "US"}, s);
+        REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "US", .bio_sex = free.bio_sex}, s).to_json() == free.to_json());
     }
 }
 
@@ -1303,7 +1357,7 @@ TEST_CASE("extend a single table", "[extend]")
     gen.extend_from_string(dasmig::bthg::table::countries,
                            countries_header + "QQ\tQQQ\tAtlantis\tOcean\t\t30\t1\t80\t84\t0.1\n", "atl.tsv");
     REQUIRE(gen.country_count() == count); // no pyramid yet
-    REQUIRE_THROWS_AS(gen.get_birth("QQ"), std::invalid_argument);
+    REQUIRE_THROWS_AS(gen.get_birth(dasmig::birth_request{.country_code = "QQ"}), std::invalid_argument);
     gen.extend_from_string(dasmig::bthg::table::age_pyramid, pyramid_header() + pyramid_row("QQ", 30), "pyr.tsv");
     REQUIRE(gen.country_count() == count + 1);
     REQUIRE(gen.data_hash() != base_hash);
@@ -1312,7 +1366,7 @@ TEST_CASE("extend a single table", "[extend]")
     std::set<int> months;
     for (std::uint64_t s = 0; s < 300; ++s)
     {
-        const auto b = gen.get_birth("QQ", s);
+        const auto b = gen.get_birth(dasmig::birth_request{.country_code = "QQ"}, s);
         REQUIRE(b.age == 30);
         REQUIRE(b.le_remaining == Catch::Approx(b.bio_sex == dasmig::sex::male ? 50.0 : 54.0));
         months.insert(b.month);
@@ -1352,7 +1406,7 @@ TEST_CASE("a directory layer is applied all or nothing", "[extend][errors]")
                                               << "QQ\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t5\t0\n";
     gen.extend(dir);
     REQUIRE(gen.country_count() == count + 1);
-    REQUIRE(gen.get_birth("QQ").month == 11); // every QQ birth is in November
+    REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "QQ"}).month == 11); // every QQ birth is in November
 
     REQUIRE_THROWS_AS(gen.extend(dir / "other.tsv"), std::invalid_argument);
     std::filesystem::remove_all(dir);
@@ -1387,6 +1441,6 @@ TEST_CASE("compiled-in data needs no files and matches them", "[embed]")
     REQUIRE(loaded);
     REQUIRE(gen.layers(dasmig::bthg::table::countries).front().source == "embedded:lite/countries.tsv");
     REQUIRE(gen.data_hash() == 0x99276bbdb2b0e563ULL); // same as the files
-    REQUIRE(gen.get_birth("US", std::uint64_t{1}).date_string() == "1999-05-19");
+    REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "US"}, std::uint64_t{1}).date_string() == "1999-05-19");
 }
 #endif
