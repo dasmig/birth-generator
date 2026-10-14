@@ -53,6 +53,14 @@ int main()
               << (b1.date_string() == b2.date_string() ? "  ✓ match" : "  ✗ mismatch")
               << "\n";
 
+    // Ordinary random generation also records the call seed for replay.
+    const dasmig::birth_request random_request{.country_code = "US"};
+    const auto random_birth = gen.get_birth(random_request);
+    const auto random_replay = gen.get_birth(random_request, random_birth.seed());
+    std::cout << "\nRandom replay:\n  " << random_birth.to_json()
+              << "\n  Replay match: "
+              << (random_birth.to_json() == random_replay.to_json() ? "yes" : "no") << "\n";
+
     // All generation choices are local to the request.
     const dasmig::birth_request request{
         .country_code = "US", .bio_sex = dasmig::sex::female,

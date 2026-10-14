@@ -232,6 +232,9 @@ class bthg
     // -- Generation -------------------------------------------------------
 
     /// @brief Generate a random birth using per-call filters and settings.
+    ///
+    /// Draws a call seed from the instance's entropy-initialized random engine.
+    /// Use get_birth(request, seed) for deterministic generation.
     /// @param request All filters and settings for this call.
     /// @return The birth, including its seed for replay with the same request.
     /// @throws std::runtime_error If no data has been loaded.
@@ -266,25 +269,6 @@ class bthg
         const auto& e = request.country_code ? lookup_entry_(*request.country_code)
                                              : random_entry_(call_seed, request.weighted);
         return generate_(e, call_seed, request);
-    }
-
-    // -- Seeding ----------------------------------------------------------
-
-    /// @brief Seed the internal random engine for deterministic sequences.
-    /// @param seed_value Seed.
-    /// @return `*this`.
-    bthg& seed(std::uint64_t seed_value)
-    {
-        _engine.seed(seed_value);
-        return *this;
-    }
-
-    /// @brief Reseed the engine with a non-deterministic source.
-    /// @return `*this`.
-    bthg& unseed()
-    {
-        _engine.unseed();
-        return *this;
     }
 
     // -- Data management --------------------------------------------------

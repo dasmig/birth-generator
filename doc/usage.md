@@ -329,21 +329,18 @@ auto b = gen.get_birth(dasmig::birth_request{});            // random
 auto replay = gen.get_birth(dasmig::birth_request{}, b.seed()); // exact same birth
 ```
 
-### Generator-level seeding
+### Deterministic sequences
 
 ```cpp
-gen.seed(100);
-auto a = gen.get_birth(dasmig::birth_request{});
-auto b = gen.get_birth(dasmig::birth_request{});
+const dasmig::birth_request request{.country_code = "DE"};
+auto a = gen.get_birth(request, std::uint64_t{100});
+auto b = gen.get_birth(request, std::uint64_t{101});
 
-gen.seed(100);
-auto a2 = gen.get_birth(dasmig::birth_request{});  // same as a
-auto b2 = gen.get_birth(dasmig::birth_request{});  // same as b
-
-gen.unseed();  // restore non-deterministic state
+auto a2 = gen.get_birth(request, std::uint64_t{100}); // same as a
+auto b2 = gen.get_birth(request, std::uint64_t{101}); // same as b
 ```
 
-`seed()` and `unseed()` control only the sequence of call seeds used by `get_birth(request)`. They do not change request fields, and `get_birth(request, seed)` neither uses nor advances that sequence.
+Deterministic generation takes a seed explicitly on every call. There are no generator-level `seed()` / `unseed()` controls. `get_birth(request)` draws from an entropy-initialized internal random engine; its result still records the call seed for replay. `get_birth(request, seed)` neither uses nor advances that engine.
 
 ## Multi-Instance Support
 
@@ -451,7 +448,7 @@ Define `DASMIG_BIRTH_EMBED` before including the header to compile the `lite` ti
 
 ## Migrating to Request-First Generation
 
-The public generation API now consists only of `get_birth(request)` and `get_birth(request, seed)`. The no-argument, seed-only and positional country/sex/year/age overloads have been removed, as have the generator-wide `weighted()` and `reference_date()` getter/setters.
+The public generation API now consists only of `get_birth(request)` and `get_birth(request, seed)`. The no-argument, seed-only and positional country/sex/year/age overloads have been removed, as have the generator-wide `weighted()` and `reference_date()` getter/setters and `seed()` / `unseed()` controls.
 
 | Previous call or setting | Request-first replacement |
 |--------------------------|---------------------------|
@@ -461,8 +458,9 @@ The public generation API now consists only of `get_birth(request)` and `get_bir
 | Country, sex, year or age arguments | Set `country_code`, `bio_sex`, `year` or `ages` on the request |
 | `weighted(false)` | Set `request.weighted = false` |
 | `reference_date(date)` | Set `request.reference_date = date` |
+| Generator `seed(seed)` / `unseed()` | Pass a seed to each `get_birth(request, seed)`, or omit it for ordinary random generation |
 
-For random generation, omit only the second (seed) argument, never the request. The request defaults, demographic distributions, result fields and seeded output are unchanged. Retain and reuse the full request when replaying a saved seed. `seed()` / `unseed()` still control random-call seed sequences; data loading, extension and inspection APIs are unchanged.
+For random generation, omit only the second (seed) argument, never the request. The request defaults, demographic distributions, result fields and seeded output are unchanged. Retain and reuse the full request when replaying a saved seed. Data loading, extension and inspection APIs are unchanged.
 
 ## Migrating from v1
 

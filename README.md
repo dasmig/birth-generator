@@ -29,7 +29,7 @@
 
 - **Weekday Deficit**. Weekend births are less probable in countries with high C-section / scheduled delivery rates, reflecting real-world hospital scheduling patterns.
 
-- **Deterministic Seeding**. Per-call `get_birth(request, seed)` for reproducible results, generator-level `seed()` / `unseed()` for deterministic sequences, and `birth::seed()` for replaying a previous generation with the same request.
+- **Deterministic Seeding**. Per-call `get_birth(request, seed)` for reproducible results, and `birth::seed()` for replaying a previous generation with the same request. Unseeded requests use ordinary random generation.
 
 - **Uniform Selection**. Use `birth_request{.weighted = false}` for equal-probability country selection.
 
@@ -121,10 +121,9 @@ auto requested_replay = bthg::instance().get_birth(request, requested.seed());
 // Replay a previous birth using its seed.
 auto replay = bthg::instance().get_birth(dasmig::birth_request{}, seeded.seed());
 
-// Seed the engine for a deterministic sequence.
-bthg::instance().seed(100);
-// ... generate births ...
-bthg::instance().unseed(); // restore non-deterministic state
+// Deterministic sequences use an explicit seed for every call.
+for (std::uint64_t seed = 100; seed < 103; ++seed)
+    std::cout << bthg::instance().get_birth(dasmig::birth_request{}, seed) << '\n';
 
 // Switch to uniform random selection (equal probability per country).
 auto uniform = bthg::instance().get_birth(dasmig::birth_request{.weighted = false});
@@ -137,7 +136,7 @@ auto c = my_gen.get_birth(dasmig::birth_request{});
 
 `birth_request{}` uses population-weighted selection and `birth_request::default_reference_date` (2023-07-01). Omit `country_code` for a random country; set `year = dasmig::year_t{1990}` for a fixed year instead of `ages`. Specifying both `year` and `ages` throws `std::invalid_argument`. `get_birth(request)` draws a seed from the generator's random engine; `get_birth(request, seed)` does not advance it. Replay requires the same request, seed and loaded data.
 
-The positional/no-argument `get_birth` overloads and generator-wide `weighted()` / `reference_date()` getter/setters have been removed. Pass an explicit request on every call, including `birth_request{}` for defaults; move weighting and reference-date choices onto that request. Result fields, seeded output, data APIs and `seed()` / `unseed()` are unchanged. See [Migrating to request-first generation](doc/usage.md#migrating-to-request-first-generation).
+The positional/no-argument `get_birth` overloads and generator-wide `weighted()` / `reference_date()` getter/setters and `seed()` / `unseed()` controls have been removed. Pass an explicit request on every call, including `birth_request{}` for defaults; move weighting and reference-date choices onto that request, and pass deterministic seeds as the second argument. Result fields, seeded output and data APIs are unchanged. See [Migrating to request-first generation](doc/usage.md#migrating-to-request-first-generation).
 
 For the complete feature guide — fields, seeding, weighting, and more — see the **[Usage Guide](doc/usage.md)**.
 
