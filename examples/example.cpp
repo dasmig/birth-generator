@@ -53,6 +53,18 @@ int main()
               << (b1.date_string() == b2.date_string() ? "  ✓ match" : "  ✗ mismatch")
               << "\n";
 
+    // Per-call settings do not change the generator's compatibility defaults.
+    const dasmig::birth_request request{
+        .country_code = "US", .bio_sex = dasmig::sex::female,
+        .ages = dasmig::age_range{.min = 18, .max = 65}, .weighted = false,
+        .reference_date = std::chrono::year{2040} / std::chrono::January / std::chrono::day{1},
+    };
+    const auto requested = gen.get_birth(request, std::uint64_t{42});
+    const auto replay = gen.get_birth(request, requested.seed());
+    std::cout << "\nPer-call request (female, adult, ages as of 2040-01-01):\n  "
+              << requested.to_json() << "\n  Replay match: "
+              << (requested.to_json() == replay.to_json() ? "yes" : "no") << "\n";
+
     // Sex-specific generation.
     std::cout << "\nSex-specific:\n";
     for (int i = 0; i < 3; ++i)
