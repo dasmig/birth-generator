@@ -33,6 +33,8 @@
 
 - **Uniform Selection**. Switch to equal-probability country selection with `weighted(false)`.
 
+- **Per-Call Requests**. Use `birth_request` with `get_birth(request, seed)` to combine country, sex, year or age filters with per-call weighting and reference date, without changing generator settings.
+
 - **Identical Everywhere**. A seed gives the same birth on every compiler, standard library and CPU (GCC, Clang, MSVC, Emscripten; x86-64 and ARM64), checked by known-answer tests. Ages are relative to a fixed reference date, not the clock.
 
 - **Extensible Data**. Load your own TSV layers on top of the shipped data to add, change or remove countries (`extend()`), checked before they are applied.
@@ -102,6 +104,16 @@ std::cout << "LE left:  " << b.le_remaining << " years" << '\n';
 // Deterministic generation — same seed always produces the same birth.
 auto seeded = bthg::instance().get_birth(42);
 
+// Per-call filters and settings, independent of weighted()/reference_date().
+dasmig::birth_request request{
+    .country_code = "US",
+    .bio_sex = dasmig::sex::female,
+    .ages = dasmig::age_range{18, 65},
+    .weighted = false,
+    .reference_date = std::chrono::year{2040} / std::chrono::January / std::chrono::day{1}};
+auto requested = bthg::instance().get_birth(request, 42);
+auto requested_replay = bthg::instance().get_birth(request, requested.seed());
+
 // Replay a previous birth using its seed.
 auto replay = bthg::instance().get_birth(seeded.seed());
 
@@ -120,6 +132,8 @@ bthg my_gen;
 my_gen.load("path/to/resources/lite");
 auto c = my_gen.get_birth();
 ```
+
+`birth_request{}` uses population-weighted selection and `bthg::default_reference_date` (2023-07-01), even if legacy generator settings were changed. Omit `country_code` for a random country; set `year = dasmig::year_t{1990}` for a fixed year instead of `ages`. Specifying both `year` and `ages` throws `std::invalid_argument`. Request calls do not advance the generator's random engine; replay requires the same request, seed and loaded data. Existing overloads and `weighted()` / `reference_date()` getter/setters remain compatible.
 
 For the complete feature guide — fields, seeding, weighting, and more — see the **[Usage Guide](doc/usage.md)**.
 

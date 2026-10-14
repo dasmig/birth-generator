@@ -11,6 +11,7 @@ This guide covers every feature of the birth-generator library in detail. For a 
 <li><a href="#loading-resources">Loading Resources</a></li>
 <li><a href="#generating-births">Generating Births</a>
   <ul>
+  <li><a href="#per-call-requests">Per-Call Requests</a></li>
   <li><a href="#sex-specific-generation">Sex-Specific Generation</a></li>
   <li><a href="#year-specific-generation">Year-Specific Generation</a></li>
   <li><a href="#sex--year-generation">Sex + Year Generation</a></li>
@@ -133,6 +134,43 @@ auto det = gen.get_birth(std::uint64_t{42});
 ```
 
 If the country code is not found (e.g., `"XX"`), `get_birth()` throws `std::invalid_argument`.
+
+### Per-call requests
+
+Use `get_birth(const birth_request&, std::uint64_t seed)` to specify filters and settings for one deterministic call. The request owns its country code and can be saved and reused:
+
+```cpp
+dasmig::birth_request request{
+    .country_code = "US",
+    .bio_sex = dasmig::sex::female,
+    .ages = dasmig::age_range{18, 65},
+    .reference_date = std::chrono::year{2040} / std::chrono::January / std::chrono::day{1}};
+auto adult = gen.get_birth(request, std::uint64_t{42});
+auto replay = gen.get_birth(request, adult.seed()); // identical full result
+
+// Random country, fixed sex and year.
+dasmig::birth_request fixed_year{
+    .bio_sex = dasmig::sex::male, .year = dasmig::year_t{1990}};
+auto born_in_1990 = gen.get_birth(fixed_year, std::uint64_t{7});
+
+// Uniform country selection for this call only.
+auto uniform = gen.get_birth(dasmig::birth_request{.weighted = false}, std::uint64_t{42});
+```
+
+| Field | Type | Default / meaning |
+|-------|------|-------------------|
+| `country_code` | `std::optional<std::string>` | Omitted: random country; otherwise a loaded ISO alpha-2 code |
+| `bio_sex` | `std::optional<dasmig::sex>` | Omitted: draw from the country's M:F ratio |
+| `year` | `std::optional<dasmig::year_t>` | Omitted: derive birth year from the drawn age |
+| `ages` | `std::optional<dasmig::age_range>` | Omitted: full age pyramid; otherwise inclusive range, clamped to 100 |
+| `weighted` | `bool` | `true`: population-weighted; `false`: uniform (ignored when country is fixed) |
+| `reference_date` | `std::chrono::year_month_day` | `bthg::default_reference_date`, 2023-07-01 |
+
+`year` and `ages` are mutually exclusive; specifying both throws `std::invalid_argument`. The existing range validation (`min > max`), age clamping, unknown-country errors, and invalid-reference-date errors also apply to requests. A fixed year's derived age is still clamped to [0, 100].
+
+Request calls **do not inherit or mutate** generator-wide `weighted()` or `reference_date()` settings, and do not advance the internal random engine. Thus `birth_request{}` always uses population weighting and the default reference date, even after legacy setters have been used. All existing `get_birth` overloads remain compatibility wrappers and still honor those setters.
+
+The result shape, seed signature and stream splits are unchanged. With the same filters, weighting, reference date, seed and data, a request and its corresponding legacy overload return the same full result. Replay needs the same request and loaded data as well as the seed: the signature records only seed and data hash, not request fields.
 
 ### Sex-specific generation
 
@@ -266,6 +304,8 @@ auto b = gen.get_birth();  // any country equally likely
 gen.weighted(true);         // restore population-weighted
 ```
 
+This setting affects the legacy overloads only. For an isolated call use `gen.get_birth(dasmig::birth_request{.weighted = false}, seed)` instead.
+
 ## Seeding and Deterministic Generation
 
 ### Per-call seeding
@@ -341,7 +381,7 @@ gen.reference_date(std::chrono::year{2040} / std::chrono::January / std::chrono:
 auto b = gen.get_birth("BR");   // ages as of 2040-01-01; the 2023 age structure is kept
 ```
 
-Changing the reference date shifts every birth year; replaying a seed needs the same reference date (and the same `weighted()` setting).
+Changing the reference date shifts legacy age-drawn birth years (a fixed `year_t` stays fixed and its age changes); replaying a seed needs the same reference date and `weighted()` setting. For a request-based call, set `birth_request::reference_date` instead; it neither reads nor changes this generator-wide setting.
 
 ## Extending Data
 
@@ -429,5 +469,7 @@ The singleton `bthg::instance()` returns a single shared instance, so concurrent
 | `std::runtime_error("No birth data loaded. Call load() first.")` | Called `get_birth()` before any `load()` and auto-probe found nothing. |
 | `std::invalid_argument("Unknown country code: XX")` | The country code passed to `get_birth("XX")` is not in the loaded dataset. |
 | `std::invalid_argument("age_range: min must be <= max")` | Passed an `age_range` where `min > max`. |
-| `std::invalid_argument` | `reference_date()` with an invalid date; `extend(file)` with a file not named after a table. |
+| `std::invalid_argument("reference_date: not a valid date")` | Invalid date in `birth_request::reference_date` or `reference_date(date)`. |
+| `std::invalid_argument("birth_request: year and ages are mutually exclusive")` | Specified both a fixed year and an age range in one request. |
+| `std::invalid_argument` | `extend(file)` with a file not named after a table. |
 | `dasmig::core::tsv_error` | A malformed data file or layer (message gives file, line and column); the data is unchanged. |

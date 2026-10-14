@@ -61,6 +61,29 @@ struct age_range
     std::uint8_t max; ///< Oldest age.
 };
 
+/// @brief Per-call birth filters and settings, independent of generator settings.
+///
+/// An omitted country selects a random country. Omitted sex, year and ages
+/// use the country's demographic distributions. A fixed year and an age
+/// range are mutually exclusive. Replay requires the same request and data.
+struct birth_request
+{
+    /// @brief 1 July 2023, the date of the UN population estimates.
+    static constexpr std::chrono::year_month_day default_reference_date{
+        std::chrono::year{2023}, std::chrono::July, std::chrono::day{1}};
+
+    /// @brief ISO 3166-1 alpha-2 code, or random.
+    std::optional<std::string> country_code{}; // NOLINT(readability-redundant-member-init)
+    /// @brief Fixed biological sex, or drawn.
+    std::optional<dasmig::sex> bio_sex{}; // NOLINT(readability-redundant-member-init)
+    /// @brief Fixed birth year, or derived from age.
+    std::optional<year_t> year{}; // NOLINT(readability-redundant-member-init)
+    /// @brief Inclusive ages; values above 100 clamp to 100.
+    std::optional<age_range> ages{}; // NOLINT(readability-redundant-member-init)
+    bool weighted{true}; ///< Population-weighted (true) or uniform country.
+    std::chrono::year_month_day reference_date{default_reference_date}; ///< Date ages are computed at.
+};
+
 /// @brief Return type for birth generation.
 ///
 /// Supports implicit conversion to std::string (ISO 8601 date),
@@ -184,7 +207,7 @@ class bthg
     /// @brief The default reference date: 1 July 2023, the date the UN
     ///        World Population Prospects estimates in the data refer to.
     static constexpr std::chrono::year_month_day default_reference_date{
-        std::chrono::year{2023}, std::chrono::July, std::chrono::day{1}};
+        birth_request::default_reference_date};
 
     /// @brief Default constructor — creates an empty generator with no data.
     bthg() = default;
@@ -208,6 +231,32 @@ class bthg
 
     // -- Generation -------------------------------------------------------
 
+    /// @brief Generate a deterministic birth using per-call filters and settings.
+    ///
+    /// Does not read or change weighted()/reference_date() settings or advance
+    /// the internal random engine. Replay with the same request, seed and data.
+    /// @param request Filters and settings for this call.
+    /// @param call_seed Seed.
+    /// @return The birth.
+    /// @throws std::runtime_error If no data has been loaded.
+    /// @throws std::invalid_argument If the country is unknown, the reference
+    ///         date or age range is invalid, or both year and ages are specified.
+    [[nodiscard]] birth get_birth(const birth_request& request, std::uint64_t call_seed) const
+    {
+        validate_reference_(request.reference_date);
+        if (request.ages && request.ages->min > request.ages->max)
+        {
+            throw std::invalid_argument("age_range: min must be <= max");
+        }
+        if (request.year && request.ages)
+        {
+            throw std::invalid_argument("birth_request: year and ages are mutually exclusive");
+        }
+        const auto& e = request.country_code ? lookup_entry_(*request.country_code)
+                                             : random_entry_(call_seed, request.weighted);
+        return generate_(e, call_seed, request);
+    }
+
     /// @brief Generate a random birth for a specific country.
     /// @param cca2 ISO 3166-1 alpha-2 country code.
     /// @return The birth.
@@ -215,7 +264,7 @@ class bthg
     /// @throws std::invalid_argument If the country code is unknown.
     [[nodiscard]] birth get_birth(std::string_view cca2)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(), {});
+        return get_birth(cca2, draw_seed_());
     }
 
     /// @brief Generate a deterministic birth for a specific country.
@@ -224,7 +273,7 @@ class bthg
     /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed, {});
+        return get_birth(legacy_request_(cca2), call_seed);
     }
 
     /// @brief Generate a random birth from a random country (weighted by
@@ -237,7 +286,7 @@ class bthg
     /// @return The birth.
     [[nodiscard]] birth get_birth(std::uint64_t call_seed) const
     {
-        return generate_(random_entry_(call_seed), call_seed, {});
+        return get_birth(legacy_request_(), call_seed);
     }
 
     // -- Sex-specific generation ------------------------------------------
@@ -248,7 +297,7 @@ class bthg
     /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(), {.sex = bio_sex});
+        return get_birth(cca2, bio_sex, draw_seed_());
     }
 
     /// @brief Deterministic birth with a fixed sex.
@@ -259,7 +308,7 @@ class bthg
     [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
                                   std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed, {.sex = bio_sex});
+        return get_birth(legacy_request_(cca2, bio_sex), call_seed);
     }
 
     /// @brief Random birth from a random country with a fixed sex.
@@ -273,7 +322,7 @@ class bthg
     /// @return The birth.
     [[nodiscard]] birth get_birth(sex bio_sex, std::uint64_t call_seed) const
     {
-        return generate_(random_entry_(call_seed), call_seed, {.sex = bio_sex});
+        return get_birth(legacy_request_({}, bio_sex), call_seed);
     }
 
     // -- Year-specific generation -----------------------------------------
@@ -284,7 +333,7 @@ class bthg
     /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, year_t year)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(), {.year = year.value});
+        return get_birth(cca2, year, draw_seed_());
     }
 
     /// @brief Deterministic birth in a fixed year.
@@ -295,7 +344,7 @@ class bthg
     [[nodiscard]] birth get_birth(std::string_view cca2, year_t year,
                                   std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed, {.year = year.value});
+        return get_birth(legacy_request_(cca2, {}, year), call_seed);
     }
 
     // -- Sex + year generation --------------------------------------------
@@ -307,7 +356,7 @@ class bthg
     /// @return The birth.
     [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex, year_t year)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(), {.sex = bio_sex, .year = year.value});
+        return get_birth(cca2, bio_sex, year, draw_seed_());
     }
 
     /// @brief Deterministic birth with a fixed sex and year.
@@ -319,7 +368,7 @@ class bthg
     [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex, year_t year,
                                   std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed, {.sex = bio_sex, .year = year.value});
+        return get_birth(legacy_request_(cca2, bio_sex, year), call_seed);
     }
 
     // -- Age-range generation ---------------------------------------------
@@ -348,13 +397,7 @@ class bthg
     [[nodiscard]] birth get_birth(std::string_view cca2, age_range range,
                                   std::uint64_t call_seed) const
     {
-        if (range.min > range.max)
-        {
-            throw std::invalid_argument("age_range: min must be <= max");
-        }
-        const auto top = static_cast<std::uint8_t>(max_age_);
-        return generate_(lookup_entry_(cca2), call_seed,
-                         {.age_min = std::min(range.min, top), .age_max = std::min(range.max, top)});
+        return get_birth(legacy_request_(cca2, {}, {}, range), call_seed);
     }
 
     // -- Seeding and options ----------------------------------------------
@@ -376,41 +419,39 @@ class bthg
         return *this;
     }
 
-    /// @brief Set whether a random country is population-weighted.
+    /// @brief Set whether a random country is population-weighted for legacy overloads.
+    ///        Request-based calls use birth_request::weighted instead.
     /// @param enable `true` for weighted (default), `false` for uniform.
     /// @return `*this`.
     bthg& weighted(bool enable)
     {
-        _weighted = enable;
+        _defaults.weighted = enable;
         return *this;
     }
 
     /// @brief Whether a random country is population-weighted.
     /// @return `true` if weighted.
-    [[nodiscard]] bool weighted() const { return _weighted; }
+    [[nodiscard]] bool weighted() const { return _defaults.weighted; }
 
-    /// @brief Set the date ages are computed at.
+    /// @brief Set the date ages are computed at for legacy overloads.
     ///
     /// The default is default_reference_date (2023-07-01). Changing it
     /// shifts every generated birth year; replaying a seed needs the same
-    /// reference date.
+    /// reference date. Request-based calls use birth_request::reference_date.
     ///
     /// @param date A valid date.
     /// @return `*this`.
     /// @throws std::invalid_argument If @p date is not a valid date.
     bthg& reference_date(std::chrono::year_month_day date)
     {
-        if (!date.ok())
-        {
-            throw std::invalid_argument("reference_date: not a valid date");
-        }
-        _reference = date;
+        validate_reference_(date);
+        _defaults.reference_date = date;
         return *this;
     }
 
     /// @brief The date ages are computed at.
     /// @return The reference date.
-    [[nodiscard]] std::chrono::year_month_day reference_date() const { return _reference; }
+    [[nodiscard]] std::chrono::year_month_day reference_date() const { return _defaults.reference_date; }
 
     // -- Data management --------------------------------------------------
 
@@ -724,8 +765,7 @@ class bthg
     std::vector<entry> _entries; // countries-table order
     std::map<std::string, std::size_t, std::less<>> _index;
     core::discrete _country_dist{1.0};
-    bool _weighted{true};
-    std::chrono::year_month_day _reference{default_reference_date};
+    birth_request _defaults{};
     core::rng _engine{core::rng::from_entropy()};
 
     struct auto_probe_tag {};
@@ -825,6 +865,27 @@ class bthg
 
     std::uint64_t draw_seed_() { return _engine(); }
 
+    [[nodiscard]] birth_request legacy_request_(std::optional<std::string_view> cca2 = {},
+                                                std::optional<dasmig::sex> bio_sex = {},
+                                                std::optional<year_t> year = {},
+                                                std::optional<age_range> ages = {}) const
+    {
+        auto request = _defaults;
+        if (cca2) request.country_code.emplace(*cca2);
+        request.bio_sex = bio_sex;
+        request.year = year;
+        request.ages = ages;
+        return request;
+    }
+
+    static void validate_reference_(std::chrono::year_month_day date)
+    {
+        if (!date.ok())
+        {
+            throw std::invalid_argument("reference_date: not a valid date");
+        }
+    }
+
     void require_data_() const
     {
         if (_entries.empty())
@@ -844,24 +905,14 @@ class bthg
         return _entries[it->second];
     }
 
-    [[nodiscard]] const entry& random_entry_(std::uint64_t call_seed) const
+    [[nodiscard]] const entry& random_entry_(std::uint64_t call_seed, bool weighted) const
     {
         require_data_();
         auto r = core::rng{call_seed}.split("country");
-        const auto idx = _weighted ? _country_dist(r)
+        const auto idx = weighted ? _country_dist(r)
                                    : static_cast<std::size_t>(core::bounded(r, _entries.size()));
         return _entries[idx];
     }
-
-    // {} initializers let callers leave members out of designated
-    // initializers without -Wmissing-designated-field-initializers.
-    struct options
-    {
-        std::optional<dasmig::sex> sex{}; // NOLINT(readability-redundant-member-init)
-        std::optional<std::uint16_t> year{}; // NOLINT(readability-redundant-member-init)
-        std::uint8_t age_min{0};
-        std::uint8_t age_max{static_cast<std::uint8_t>(max_age_)};
-    };
 
     static unsigned days_in_(int year, unsigned month)
     {
@@ -872,10 +923,11 @@ class bthg
     }
 
     // Whether month/day falls after the reference date's month/day.
-    [[nodiscard]] bool after_reference_(unsigned month, unsigned day) const
+    [[nodiscard]] static bool after_reference_(unsigned month, unsigned day,
+                                               std::chrono::year_month_day reference)
     {
-        const auto ref_m = static_cast<unsigned>(_reference.month());
-        const auto ref_d = static_cast<unsigned>(_reference.day());
+        const auto ref_m = static_cast<unsigned>(reference.month());
+        const auto ref_d = static_cast<unsigned>(reference.day());
         return month > ref_m || (month == ref_m && day > ref_d);
     }
 
@@ -888,20 +940,22 @@ class bthg
         unsigned day;
     };
 
-    [[nodiscard]] placed place_(core::rng& r, const entry& e, unsigned month, unsigned age,
-                                std::optional<std::uint16_t> fixed_year) const
+    [[nodiscard]] static placed place_(core::rng& r, const entry& e, unsigned month, unsigned age,
+                                       std::optional<year_t> fixed_year,
+                                       std::chrono::year_month_day reference)
     {
-        const int ref_year = static_cast<int>(_reference.year());
+        const int ref_year = static_cast<int>(reference.year());
         auto draw = [&]() -> placed {
             if (fixed_year)
             {
-                const int y = *fixed_year;
+                const int y = fixed_year->value;
                 return {.year = y, .day = core::uniform_int(r, 1U, days_in_(y, month))};
             }
             for (;;)
             {
                 const auto d = core::uniform_int(r, 1U, 31U);
-                const int y = ref_year - static_cast<int>(age) - (after_reference_(month, d) ? 1 : 0);
+                const int y = ref_year - static_cast<int>(age) -
+                              (after_reference_(month, d, reference) ? 1 : 0);
                 if (d <= days_in_(y, month)) return {.year = y, .day = d};
             }
         };
@@ -918,7 +972,7 @@ class bthg
         return p;
     }
 
-    [[nodiscard]] birth generate_(const entry& e, std::uint64_t call_seed, const options& opts) const
+    [[nodiscard]] birth generate_(const entry& e, std::uint64_t call_seed, const birth_request& opts) const
     {
         const core::rng call{call_seed};
         birth b;
@@ -926,9 +980,9 @@ class bthg
         b.country_code = e.cca2;
 
         // 1. Sex, weighted by the male:female population.
-        if (opts.sex)
+        if (opts.bio_sex)
         {
-            b.bio_sex = *opts.sex;
+            b.bio_sex = *opts.bio_sex;
         }
         else
         {
@@ -944,19 +998,23 @@ class bthg
         {
             auto r = call.split("age");
             const auto& weights = male ? e.male_weights : e.female_weights;
-            if (opts.age_min == 0 && opts.age_max == max_age_)
+            const auto top = static_cast<std::uint8_t>(max_age_);
+            const auto range = opts.ages.value_or(age_range{.min = 0, .max = top});
+            const auto age_min = std::min(range.min, top);
+            const auto age_max = std::min(range.max, top);
+            if (age_min == 0 && age_max == max_age_)
             {
                 age = static_cast<unsigned>((male ? e.male_age : e.female_age)(r));
             }
             else
             {
-                const std::vector<double> slice(weights.begin() + opts.age_min,
-                                                weights.begin() + opts.age_max + 1);
+                const std::vector<double> slice(weights.begin() + age_min,
+                                                weights.begin() + age_max + 1);
                 double total = 0.0;
                 for (const double w : slice) total += w;
                 const auto offset = total > 0.0 ? core::discrete{slice}(r)
                                                 : static_cast<std::size_t>(core::bounded(r, slice.size()));
-                age = opts.age_min + static_cast<unsigned>(offset);
+                age = age_min + static_cast<unsigned>(offset);
             }
         }
 
@@ -969,13 +1027,13 @@ class bthg
         // 4. Day (and year), with the weekend deficit.
         {
             auto r = call.split("day");
-            const auto p = place_(r, e, b.month, age, opts.year);
+            const auto p = place_(r, e, b.month, age, opts.year, opts.reference_date);
             b.year = static_cast<std::uint16_t>(p.year);
             b.day = static_cast<std::uint8_t>(p.day);
             if (opts.year)
             {
-                const int completed = static_cast<int>(_reference.year()) - p.year -
-                                      (after_reference_(b.month, p.day) ? 1 : 0);
+                const int completed = static_cast<int>(opts.reference_date.year()) - p.year -
+                                      (after_reference_(b.month, p.day, opts.reference_date) ? 1 : 0);
                 age = static_cast<unsigned>(std::clamp(completed, 0, static_cast<int>(max_age_)));
             }
         }
