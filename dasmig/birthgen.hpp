@@ -44,7 +44,7 @@ enum class sex : std::uint8_t
 };
 #endif
 
-/// @brief Strong type for a birth year, so it is not mistaken for a seed.
+/// @brief Strong type for a requested birth year.
 struct year_t
 {
     std::uint16_t value; ///< The year.
@@ -61,7 +61,7 @@ struct age_range
     std::uint8_t max; ///< Oldest age.
 };
 
-/// @brief Per-call birth filters and settings, independent of generator settings.
+/// @brief All per-call birth filters and settings.
 ///
 /// An omitted country selects a random country. Omitted sex, year and ages
 /// use the country's demographic distributions. A fixed year and an age
@@ -102,8 +102,8 @@ class birth
     std::string cohort;       ///< Generational cohort label.
 
     /// @brief Retrieve the random seed used to generate this birth.
-    /// @return The call seed; pass it to a seeded get_birth() overload to
-    ///         generate the same birth again.
+    /// @return The call seed; pass it to get_birth(request, seed) with the
+    ///         original request and data to generate the same birth again.
     [[nodiscard]] std::uint64_t seed() const { return _signature.seed; }
 
     /// @brief The seed and the data this birth was generated from.
@@ -231,10 +231,24 @@ class bthg
 
     // -- Generation -------------------------------------------------------
 
+    /// @brief Generate a random birth using per-call filters and settings.
+    ///
+    /// Draws a call seed from the instance's entropy-initialized random engine.
+    /// Use get_birth(request, seed) for deterministic generation.
+    /// @param request All filters and settings for this call.
+    /// @return The birth, including its seed for replay with the same request.
+    /// @throws std::runtime_error If no data has been loaded.
+    /// @throws std::invalid_argument If the country is unknown, the reference
+    ///         date or age range is invalid, or both year and ages are specified.
+    [[nodiscard]] birth get_birth(const birth_request& request)
+    {
+        return get_birth(request, draw_seed_());
+    }
+
     /// @brief Generate a deterministic birth using per-call filters and settings.
     ///
-    /// Does not read or change weighted()/reference_date() settings or advance
-    /// the internal random engine. Replay with the same request, seed and data.
+    /// Does not advance the internal random engine. Replay with the same
+    /// request, seed and data.
     /// @param request Filters and settings for this call.
     /// @param call_seed Seed.
     /// @return The birth.
@@ -256,202 +270,6 @@ class bthg
                                              : random_entry_(call_seed, request.weighted);
         return generate_(e, call_seed, request);
     }
-
-    /// @brief Generate a random birth for a specific country.
-    /// @param cca2 ISO 3166-1 alpha-2 country code.
-    /// @return The birth.
-    /// @throws std::runtime_error If no data has been loaded.
-    /// @throws std::invalid_argument If the country code is unknown.
-    [[nodiscard]] birth get_birth(std::string_view cca2)
-    {
-        return get_birth(cca2, draw_seed_());
-    }
-
-    /// @brief Generate a deterministic birth for a specific country.
-    /// @param cca2 ISO 3166-1 alpha-2 country code.
-    /// @param call_seed Seed.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::string_view cca2, std::uint64_t call_seed) const
-    {
-        return get_birth(legacy_request_(cca2), call_seed);
-    }
-
-    /// @brief Generate a random birth from a random country (weighted by
-    ///        population unless weighted(false)).
-    /// @return The birth.
-    [[nodiscard]] birth get_birth() { return get_birth(draw_seed_()); }
-
-    /// @brief Generate a deterministic birth from a random country.
-    /// @param call_seed Seed.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::uint64_t call_seed) const
-    {
-        return get_birth(legacy_request_(), call_seed);
-    }
-
-    // -- Sex-specific generation ------------------------------------------
-
-    /// @brief Random birth with a fixed sex.
-    /// @param cca2 Country code.
-    /// @param bio_sex Sex.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex)
-    {
-        return get_birth(cca2, bio_sex, draw_seed_());
-    }
-
-    /// @brief Deterministic birth with a fixed sex.
-    /// @param cca2 Country code.
-    /// @param bio_sex Sex.
-    /// @param call_seed Seed.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex,
-                                  std::uint64_t call_seed) const
-    {
-        return get_birth(legacy_request_(cca2, bio_sex), call_seed);
-    }
-
-    /// @brief Random birth from a random country with a fixed sex.
-    /// @param bio_sex Sex.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(sex bio_sex) { return get_birth(bio_sex, draw_seed_()); }
-
-    /// @brief Deterministic birth from a random country with a fixed sex.
-    /// @param bio_sex Sex.
-    /// @param call_seed Seed.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(sex bio_sex, std::uint64_t call_seed) const
-    {
-        return get_birth(legacy_request_({}, bio_sex), call_seed);
-    }
-
-    // -- Year-specific generation -----------------------------------------
-
-    /// @brief Random birth in a fixed year.
-    /// @param cca2 Country code.
-    /// @param year Birth year.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::string_view cca2, year_t year)
-    {
-        return get_birth(cca2, year, draw_seed_());
-    }
-
-    /// @brief Deterministic birth in a fixed year.
-    /// @param cca2 Country code.
-    /// @param year Birth year.
-    /// @param call_seed Seed.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::string_view cca2, year_t year,
-                                  std::uint64_t call_seed) const
-    {
-        return get_birth(legacy_request_(cca2, {}, year), call_seed);
-    }
-
-    // -- Sex + year generation --------------------------------------------
-
-    /// @brief Random birth with a fixed sex and year.
-    /// @param cca2 Country code.
-    /// @param bio_sex Sex.
-    /// @param year Birth year.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex, year_t year)
-    {
-        return get_birth(cca2, bio_sex, year, draw_seed_());
-    }
-
-    /// @brief Deterministic birth with a fixed sex and year.
-    /// @param cca2 Country code.
-    /// @param bio_sex Sex.
-    /// @param year Birth year.
-    /// @param call_seed Seed.
-    /// @return The birth.
-    [[nodiscard]] birth get_birth(std::string_view cca2, sex bio_sex, year_t year,
-                                  std::uint64_t call_seed) const
-    {
-        return get_birth(legacy_request_(cca2, bio_sex, year), call_seed);
-    }
-
-    // -- Age-range generation ---------------------------------------------
-
-    /// @brief Random birth with an age in a range (e.g. adults 18–65).
-    ///
-    /// The age is drawn from the age pyramid restricted to the range, so
-    /// ages within it keep their relative frequencies. Ages above 100 are
-    /// treated as 100.
-    ///
-    /// @param cca2 Country code.
-    /// @param range Inclusive age range.
-    /// @return The birth.
-    /// @throws std::invalid_argument If range.min > range.max.
-    [[nodiscard]] birth get_birth(std::string_view cca2, age_range range)
-    {
-        return get_birth(cca2, range, draw_seed_());
-    }
-
-    /// @brief Deterministic birth with an age in a range.
-    /// @param cca2 Country code.
-    /// @param range Inclusive age range.
-    /// @param call_seed Seed.
-    /// @return The birth.
-    /// @throws std::invalid_argument If range.min > range.max.
-    [[nodiscard]] birth get_birth(std::string_view cca2, age_range range,
-                                  std::uint64_t call_seed) const
-    {
-        return get_birth(legacy_request_(cca2, {}, {}, range), call_seed);
-    }
-
-    // -- Seeding and options ----------------------------------------------
-
-    /// @brief Seed the internal random engine for deterministic sequences.
-    /// @param seed_value Seed.
-    /// @return `*this`.
-    bthg& seed(std::uint64_t seed_value)
-    {
-        _engine.seed(seed_value);
-        return *this;
-    }
-
-    /// @brief Reseed the engine with a non-deterministic source.
-    /// @return `*this`.
-    bthg& unseed()
-    {
-        _engine.unseed();
-        return *this;
-    }
-
-    /// @brief Set whether a random country is population-weighted for legacy overloads.
-    ///        Request-based calls use birth_request::weighted instead.
-    /// @param enable `true` for weighted (default), `false` for uniform.
-    /// @return `*this`.
-    bthg& weighted(bool enable)
-    {
-        _defaults.weighted = enable;
-        return *this;
-    }
-
-    /// @brief Whether a random country is population-weighted.
-    /// @return `true` if weighted.
-    [[nodiscard]] bool weighted() const { return _defaults.weighted; }
-
-    /// @brief Set the date ages are computed at for legacy overloads.
-    ///
-    /// The default is default_reference_date (2023-07-01). Changing it
-    /// shifts every generated birth year; replaying a seed needs the same
-    /// reference date. Request-based calls use birth_request::reference_date.
-    ///
-    /// @param date A valid date.
-    /// @return `*this`.
-    /// @throws std::invalid_argument If @p date is not a valid date.
-    bthg& reference_date(std::chrono::year_month_day date)
-    {
-        validate_reference_(date);
-        _defaults.reference_date = date;
-        return *this;
-    }
-
-    /// @brief The date ages are computed at.
-    /// @return The reference date.
-    [[nodiscard]] std::chrono::year_month_day reference_date() const { return _defaults.reference_date; }
 
     // -- Data management --------------------------------------------------
 
@@ -765,7 +583,6 @@ class bthg
     std::vector<entry> _entries; // countries-table order
     std::map<std::string, std::size_t, std::less<>> _index;
     core::discrete _country_dist{1.0};
-    birth_request _defaults{};
     core::rng _engine{core::rng::from_entropy()};
 
     struct auto_probe_tag {};
@@ -864,19 +681,6 @@ class bthg
     // -- Generation ----------------------------------------------------------
 
     std::uint64_t draw_seed_() { return _engine(); }
-
-    [[nodiscard]] birth_request legacy_request_(std::optional<std::string_view> cca2 = {},
-                                                std::optional<dasmig::sex> bio_sex = {},
-                                                std::optional<year_t> year = {},
-                                                std::optional<age_range> ages = {}) const
-    {
-        auto request = _defaults;
-        if (cca2) request.country_code.emplace(*cca2);
-        request.bio_sex = bio_sex;
-        request.year = year;
-        request.ages = ages;
-        return request;
-    }
 
     static void validate_reference_(std::chrono::year_month_day date)
     {
