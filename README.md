@@ -19,6 +19,8 @@
 
 - **Demographically Plausible Birthdays**. Generates random birthdays using a multi-axis pipeline: country-specific age pyramids, monthly birth seasonality, and weekday deficit from C-section rates.
 
+- **Batch Generation**. Generate thousands of results from one seed, on several threads with the same output for any thread count, optionally unique by a key, and stream them as JSON Lines or CSV (see the usage guide).
+
 - **Population-Weighted Country Selection**. Countries are selected with probability proportional to their population, mirroring real-world demographics — a birth from India or China is far more likely than one from Iceland.
 
 - **Rich Birth Data**. Every generated birth includes: ISO date (YYYY-MM-DD), year, month, day, age, biological sex, weekday, life expectancy remaining, generational cohort label, and country code.
