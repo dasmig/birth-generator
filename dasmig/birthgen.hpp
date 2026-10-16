@@ -32,7 +32,7 @@
 /// @author Diego Dasso Migotto (diegomigotto at hotmail dot com)
 /// @see See doc/usage.md for the narrative tutorial.
 
-DASMIG_CORE_REQUIRE(1, 0);
+DASMIG_CORE_REQUIRE(1, 1);
 
 namespace dasmig
 {
@@ -273,6 +273,82 @@ class bthg
                                              : random_entry_(call_seed, request.weighted);
         return generate_(e, call_seed, request);
     }
+
+    // -- Batch generation -------------------------------------------------
+
+    /// @brief Generate a batch of birth results from a seed drawn like
+    ///        get_birth() draws its own.
+    ///
+    /// Item `i` is `get_birth(request, core::item_seed(batch_seed, options.first + i))`
+    /// for the drawn batch seed; see the seeded overload.
+    ///
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness.
+    /// @return The results, in index order.
+    [[nodiscard]] std::vector<birth> get_birth_batch(const birth_request& request,
+                                                  const core::batch_options& options)
+    {
+        return get_birth_batch(request, options, draw_seed_());
+    }
+
+    /// @brief Generate a batch of birth results, deterministically.
+    ///
+    /// Item `i` is exactly `get_birth(request, core::item_seed(batch_seed,
+    /// options.first + i))`, so an item replays on its own, a range can be
+    /// generated directly, two batches that follow each other equal one, and
+    /// the output does not depend on `options.threads`.
+    ///
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness (see
+    ///        core::unique_rule; the rule must be made for `birth`).
+    /// @param batch_seed Seed of the whole batch.
+    /// @return The results, in index order.
+    /// @throws std::invalid_argument If the request or options are invalid.
+    /// @throws std::runtime_error If no data has been loaded, or a unique
+    ///         batch runs out of attempts.
+    [[nodiscard]] std::vector<birth> get_birth_batch(const birth_request& request,
+                                                  const core::batch_options& options,
+                                                  std::uint64_t batch_seed) const
+    {
+        return core::run_batch(options, batch_seed, [&](std::uint64_t item_seed)
+                               { return get_birth(request, item_seed); });
+    }
+
+    /// @brief Stream a batch of birth results to a sink without holding the
+    ///        whole batch.
+    ///
+    /// Generates the same items as get_birth_batch() and calls
+    /// `sink(index, item)` in index order on the calling thread; `index`
+    /// includes `options.first`.
+    ///
+    /// @tparam Sink Callable taking `(std::uint64_t, birth&)`; for example
+    ///         core::jsonl_writer or core::csv_writer.
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness.
+    /// @param batch_seed Seed of the whole batch.
+    /// @param sink Receives the items.
+    template <typename Sink>
+    void for_each_birth(const birth_request& request, const core::batch_options& options,
+                        std::uint64_t batch_seed, Sink&& sink) const
+    {
+        core::for_each_batch(options, batch_seed,
+                             [&](std::uint64_t item_seed) { return get_birth(request, item_seed); },
+                             std::forward<Sink>(sink));
+    }
+
+    /// @brief Stream a batch of birth results with a batch seed drawn like
+    ///        get_birth() draws its own.
+    /// @tparam Sink Callable taking `(std::uint64_t, birth&)`.
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness.
+    /// @param sink Receives the items.
+    template <typename Sink>
+    void for_each_birth(const birth_request& request, const core::batch_options& options,
+                        Sink&& sink)
+    {
+        for_each_birth(request, options, draw_seed_(), std::forward<Sink>(sink));
+    }
+
 
     // -- Data management --------------------------------------------------
 
