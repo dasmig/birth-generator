@@ -7,19 +7,17 @@
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/dasmig/birth-generator/master/LICENSE.MIT)
 [![CI](https://github.com/dasmig/birth-generator/actions/workflows/ci.yml/badge.svg)](https://github.com/dasmig/birth-generator/actions/workflows/ci.yml)
 [![GitHub Releases](https://img.shields.io/github/release/dasmig/birth-generator.svg)](https://github.com/dasmig/birth-generator/releases)
-[![GitHub Issues](https://img.shields.io/github/issues/dasmig/birth-generator.svg)](https://github.com/dasmig/birth-generator/issues)
 [![C++23](https://img.shields.io/badge/standard-C%2B%2B23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Header-only](https://img.shields.io/badge/type-header--only-green.svg)](https://github.com/dasmig/birth-generator#integration)
-[![Platform](https://img.shields.io/badge/platform-linux%20|%20windows%20|%20macos-lightgrey.svg)](https://github.com/dasmig/birth-generator)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://dasmig.github.io/birth-generator/)
 
 **[API Reference](https://dasmig.github.io/birth-generator/)** · **[Usage Guide](doc/usage.md)** · **[Data and Method](doc/data.md)** · **[Releases](https://github.com/dasmig/birth-generator/releases)**
 
+Demographically plausible birthdays and ages, from each country's age pyramid, birth seasonality and weekday patterns.
+
 ## Features
 
 - **Demographically Plausible Birthdays**. Generates random birthdays using a multi-axis pipeline: country-specific age pyramids, monthly birth seasonality, and weekday deficit from C-section rates.
-
-- **Batch Generation**. Generate thousands of results from one seed, on several threads with the same output for any thread count, optionally unique by a key, and stream them as JSON Lines or CSV (see the usage guide).
 
 - **Population-Weighted Country Selection**. Countries are selected with probability proportional to their population, mirroring real-world demographics — a birth from India or China is far more likely than one from Iceland.
 
@@ -31,11 +29,13 @@
 
 - **Weekday Deficit**. Weekend births are less probable in countries with high C-section / scheduled delivery rates, reflecting real-world hospital scheduling patterns.
 
-- **Deterministic Seeding**. Per-call `get_birth(request, seed)` for reproducible results, and `birth::seed()` for replaying a previous generation with the same request. Unseeded requests use ordinary random generation.
-
 - **Uniform Selection**. Use `birth_request{.weighted = false}` for equal-probability country selection.
 
 - **Per-Call Requests**. Use `birth_request` with `get_birth(request)` or `get_birth(request, seed)` to combine country, sex, year or age filters with per-call weighting and reference date. All generation choices live on the request.
+
+- **Deterministic Seeding**. Per-call `get_birth(request, seed)` for reproducible results, and `birth::seed()` for replaying a previous generation with the same request. Unseeded requests use ordinary random generation.
+
+- **Batch Generation**. Generate thousands of results from one seed, on several threads with the same output for any thread count, optionally unique by a key, and stream them as JSON Lines or CSV (see the usage guide).
 
 - **Identical Everywhere**. A seed gives the same birth on every compiler, standard library and CPU (GCC, Clang, MSVC, Emscripten; x86-64 and ARM64), checked by known-answer tests. Ages are relative to a fixed reference date, not the clock.
 
@@ -53,14 +53,9 @@
 
 ```cpp
 #include <dasmig/birthgen.hpp>
-
-// For convenience.
-using bthg = dasmig::bthg;
 ```
 
-to the files you want to generate births and set the necessary switches to enable C++23 (e.g., `-std=c++23` for GCC and Clang).
-
-Additionally you must supply the birth generator with the [`resources`](https://github.com/dasmig/birth-generator/tree/master/resources) folder containing `full/` and/or `lite/` subdirectories with the three TSV data files, also available in the [release](https://github.com/dasmig/birth-generator/releases).
+to the files you want to use it in, and supply the [`resources`](https://github.com/dasmig/birth-generator/tree/master/resources) folder (or define `DASMIG_BIRTH_EMBED`).
 
 ## Usage
 
@@ -142,31 +137,6 @@ The positional/no-argument `get_birth` overloads and generator-wide `weighted()`
 
 For the complete feature guide — fields, seeding, weighting, and more — see the **[Usage Guide](doc/usage.md)**.
 
-## Build and Test
-
-The library is header-only; the Makefile builds the example and test executables. Use GNU Make, a POSIX-compatible shell (on Windows, for example, WSL), and a C++23 compiler and standard library. The default compiler is `clang++`; CI uses Clang 18 with libstdc++ 14.
-
-Run these commands from the repository root, with the shipped `resources/` folder in place:
-
-```bash
-make all        # build build/example
-./build/example # run the example
-make test       # build and run the unit tests
-make bench      # benchmarks, results in build/bench.tsv
-make test-embed # build and run the tests with the lite tier compiled in
-./build/test_runner "[request],[kat]" # targeted API/replay checks after make test
-```
-
-The test framework is included in `tests/`; no separate installation is needed. `make test-embed` defines `DASMIG_BIRTH_EMBED` and uses the checked-in `dasmig/birthgen_data.hpp`.
-
-To select another compiler, override `CXX`, for example:
-
-```bash
-make all test test-embed CXX=clang++-18
-```
-
-CI also runs `make coverage` (requires `llvm-profdata` and `llvm-cov`), `make lint` (requires `clang-tidy`), and `make docs` (requires Doxygen).
-
 ## Generation Pipeline
 
 Each call to `get_birth()` runs this pipeline:
@@ -201,16 +171,53 @@ python scripts/prepare_births.py --tier lite # lite only
 python scripts/prepare_births.py --tier full # full only
 ```
 
+## Building
+
+```bash
+make            # example
+make test       # tests
+make bench      # benchmarks, results in build/bench.tsv
+make test-embed # tests with the lite tier compiled in
+make coverage   # code coverage
+make lint       # clang-tidy
+make docs       # API docs
+make embed      # regenerate dasmig/birthgen_data.hpp from resources/lite
+```
+
+For targeted checks after `make test`: `./build/test_runner "[request],[kat]"`.
+
+## Compiler Support
+
+Tested with:
+- Clang 18+ (`-std=c++23`)
+- GCC 14+ (`-std=c++23`)
+- MSVC 19.38+ (`/std:c++latest`)
+- Emscripten 3.1.74
+
+## Dependencies
+
+| Dependency | Version | Bundled | Purpose |
+|-----------|---------|---------|---------|
+| [dasmig-core](https://github.com/dasmig/dasmig-core) | 1.0 | Yes (`core.hpp`, `core/`) | Platform-independent random engine and distributions, data layers, JSON |
+| [Catch2](https://github.com/catchorg/Catch2) | 3.x | Yes (amalgamated) | Unit testing |
+
 ## Related Libraries
 
 | Library | Description |
 |---------|-------------|
-| [name-generator](https://github.com/dasmig/name-generator) | Culturally appropriate full names |
-| [nickname-generator](https://github.com/dasmig/nickname-generator) | Gamer-style nicknames |
+| [address-generator](https://github.com/dasmig/address-generator) | Postal addresses with real streets by place |
 | [biodata-generator](https://github.com/dasmig/biodata-generator) | Procedural human physical characteristics |
 | [city-generator](https://github.com/dasmig/city-generator) | Weighted city selection by population |
 | [country-generator](https://github.com/dasmig/country-generator) | Weighted country selection by population |
+| [email-generator](https://github.com/dasmig/email-generator) | Email addresses in each country's style |
 | [entity-generator](https://github.com/dasmig/entity-generator) | ECS-based entity generation |
+| [interest-generator](https://github.com/dasmig/interest-generator) | Religion, hobbies and favourite media by country, age and sex |
+| [name-generator](https://github.com/dasmig/name-generator) | Culturally appropriate full names |
+| [nickname-generator](https://github.com/dasmig/nickname-generator) | Gamer-style nicknames |
+| [occupation-generator](https://github.com/dasmig/occupation-generator) | Employment status, education and occupation by country, age and sex |
+| [persona-generator](https://github.com/dasmig/persona-generator) | Complete characters composed from the other generators |
+| [phone-generator](https://github.com/dasmig/phone-generator) | Phone numbers valid in each country's numbering plan |
+| [trait-generator](https://github.com/dasmig/trait-generator) | Personality traits with conflicts, synergies and Big Five axes |
 
 ## License
 
