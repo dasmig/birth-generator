@@ -32,20 +32,10 @@
 /// @author Diego Dasso Migotto (diegomigotto at hotmail dot com)
 /// @see See doc/usage.md for the narrative tutorial.
 
-DASMIG_CORE_REQUIRE(1, 1);
+DASMIG_CORE_REQUIRE(1, 2);
 
 namespace dasmig
 {
-
-#ifndef DASMIG_SEX_DEFINED
-#define DASMIG_SEX_DEFINED
-/// @brief Biological sex.
-enum class sex : std::uint8_t
-{
-    male,  ///< Male.
-    female ///< Female.
-};
-#endif
 
 /// @brief Strong type for a requested birth year.
 struct year_t
@@ -133,7 +123,7 @@ class birth
             .field("month", static_cast<int>(month))
             .field("day", static_cast<int>(day))
             .field("age", static_cast<int>(age))
-            .field("sex", bio_sex == sex::male ? "male" : "female")
+            .field("sex", core::sex_name(bio_sex))
             .field("weekday", static_cast<int>(weekday))
             .field("le_remaining", le_remaining)
             .field("cohort", cohort)
@@ -783,7 +773,7 @@ class bthg
         const auto it = _index.find(cca2);
         if (it == _index.end())
         {
-            throw std::invalid_argument(std::string{"Unknown country code: "} += cca2);
+            throw core::unknown_country_error(cca2);
         }
         return _entries[it->second];
     }
