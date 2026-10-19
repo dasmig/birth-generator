@@ -280,6 +280,20 @@ std::cout << b;  // prints "1987-09-15"
 | Generation Z | 1997–2012 |
 | Generation Alpha | ≥ 2013 |
 
+### Reading the data behind a birth
+
+The generator exposes what it draws from, for code that builds on births (a family, a cohort, a chart):
+
+```cpp
+for (const auto& code : gen.countries()) { /* every country with data */ }
+
+const auto& weights = gen.age_weights("BR", dasmig::sex::female);   // 101 values, index = age
+double expectancy   = gen.life_expectancy("BR", dasmig::sex::female);
+auto cohort         = dasmig::bthg::cohort_of(1985);                // "Millennial"
+```
+
+`age_weights` returns the rows of `age_pyramid.tsv` as relative weights (population by single age, not normalised, so compare ages within a country, not between countries). `life_expectancy` is the figure `le_remaining` is computed from, and `cohort_of` gives the label `birth::cohort` carries. An unknown country throws `std::invalid_argument`; with no data loaded they throw `std::runtime_error`.
+
 ## Country-Specific Generation
 
 Set `birth_request::country_code` to an ISO 3166-1 alpha-2 code to generate a birth from a specific country:

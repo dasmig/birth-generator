@@ -351,6 +351,54 @@ class bthg
     /// @return The count.
     [[nodiscard]] std::size_t country_count() const { return _entries.size(); }
 
+    /// @brief The countries that can be generated, in the order of
+    ///        `countries.tsv`.
+    /// @return ISO 3166-1 alpha-2 codes; empty when no data is loaded.
+    [[nodiscard]] std::vector<std::string> countries() const
+    {
+        std::vector<std::string> out;
+        out.reserve(_entries.size());
+        for (const auto& e : _entries) out.push_back(e.cca2);
+        return out;
+    }
+
+    /// @brief A country's population by single age, as the generator draws ages.
+    ///
+    /// Relative weights, not normalised: they are the rows of
+    /// `age_pyramid.tsv` (population by age 0 to 100 and sex), so two
+    /// countries' weights are comparable only within a country.
+    /// @param cca2 ISO 3166-1 alpha-2 code.
+    /// @param bio_sex The sex.
+    /// @return 101 weights, index = age in completed years.
+    /// @throws std::runtime_error If no data is loaded.
+    /// @throws std::invalid_argument If the country has no data.
+    [[nodiscard]] const std::vector<double>& age_weights(std::string_view cca2, sex bio_sex) const
+    {
+        const auto& e = lookup_entry_(cca2);
+        return bio_sex == sex::male ? e.male_weights : e.female_weights;
+    }
+
+    /// @brief A country's life expectancy at birth, the figure `le_remaining`
+    ///        is computed from.
+    /// @param cca2 ISO 3166-1 alpha-2 code.
+    /// @param bio_sex The sex.
+    /// @return Years.
+    /// @throws std::runtime_error If no data is loaded.
+    /// @throws std::invalid_argument If the country has no data.
+    [[nodiscard]] double life_expectancy(std::string_view cca2, sex bio_sex) const
+    {
+        const auto& e = lookup_entry_(cca2);
+        return bio_sex == sex::male ? e.le_male : e.le_female;
+    }
+
+    /// @brief The generational cohort of a birth year, as `birth::cohort`
+    ///        labels it (see the table in the usage guide).
+    /// @param year The birth year.
+    /// @return `Greatest Generation` up to 1927, then `Silent Generation`,
+    ///         `Baby Boomer`, `Generation X`, `Millennial`, `Generation Z`,
+    ///         and `Generation Alpha` from 2013.
+    [[nodiscard]] static std::string_view cohort_of(int year) { return cohort_label_(year); }
+
     /// @brief Load data from a resource directory, replacing all data and
     ///        layers loaded before.
     ///
