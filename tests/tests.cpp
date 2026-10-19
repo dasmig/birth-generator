@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <numeric>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1382,6 +1383,60 @@ TEST_CASE("compiled-in data needs no files and matches them", "[embed]")
     REQUIRE(gen.get_birth(dasmig::birth_request{.country_code = "US"}, std::uint64_t{1}).date_string() == "1999-05-19");
 }
 #endif
+
+TEST_CASE("the country list, age weights, life expectancy and cohorts can be read", "[accessors]")
+{
+    const auto gen = make_loaded_generator();
+    REQUIRE(gen.has_data());
+
+    const auto countries = gen.countries();
+    REQUIRE(countries.size() == gen.country_count());
+    REQUIRE(std::set<std::string>(countries.begin(), countries.end()).size() == countries.size());
+    REQUIRE(std::find(countries.begin(), countries.end(), "US") != countries.end());
+
+    for (const char* code : {"US", "BR", "JP", "NG"})
+    {
+        for (const auto bio_sex : {dasmig::sex::male, dasmig::sex::female})
+        {
+            const auto& weights = gen.age_weights(code, bio_sex);
+            REQUIRE(weights.size() == 101);
+            REQUIRE(std::all_of(weights.begin(), weights.end(), [](double w) { return w >= 0.0; }));
+            REQUIRE(std::accumulate(weights.begin(), weights.end(), 0.0) > 0.0);
+            REQUIRE(gen.life_expectancy(code, bio_sex) > 30.0);
+            REQUIRE(gen.life_expectancy(code, bio_sex) < 100.0);
+        }
+    }
+    // Japan is older than Nigeria: more of its population is past 60.
+    const auto share_over_60 = [&](const char* code) {
+        const auto& w = gen.age_weights(code, dasmig::sex::female);
+        return std::accumulate(w.begin() + 60, w.end(), 0.0) / std::accumulate(w.begin(), w.end(), 0.0);
+    };
+    REQUIRE(share_over_60("JP") > share_over_60("NG"));
+
+    // What a birth reports is what the accessors return.
+    for (std::uint64_t seed = 1; seed <= 20; ++seed)
+    {
+        const auto b = gen.get_birth(dasmig::birth_request{.country_code = "DE"}, seed);
+        REQUIRE(b.le_remaining == Catch::Approx(std::max(0.0, gen.life_expectancy("DE", b.bio_sex) - b.age)));
+        REQUIRE(b.cohort == std::string{dasmig::bthg::cohort_of(b.year)});
+    }
+
+    REQUIRE(dasmig::bthg::cohort_of(1927) == "Greatest Generation");
+    REQUIRE(dasmig::bthg::cohort_of(1928) == "Silent Generation");
+    REQUIRE(dasmig::bthg::cohort_of(1946) == "Baby Boomer");
+    REQUIRE(dasmig::bthg::cohort_of(1965) == "Generation X");
+    REQUIRE(dasmig::bthg::cohort_of(1981) == "Millennial");
+    REQUIRE(dasmig::bthg::cohort_of(1997) == "Generation Z");
+    REQUIRE(dasmig::bthg::cohort_of(2013) == "Generation Alpha");
+
+    REQUIRE_THROWS_AS(gen.age_weights("XX", dasmig::sex::male), std::invalid_argument);
+    REQUIRE_THROWS_AS(gen.life_expectancy("XX", dasmig::sex::female), std::invalid_argument);
+
+    const dasmig::bthg empty;
+    REQUIRE(empty.countries().empty());
+    REQUIRE_THROWS_AS(empty.age_weights("US", dasmig::sex::male), std::runtime_error);
+    REQUIRE_THROWS_AS(empty.life_expectancy("US", dasmig::sex::male), std::runtime_error);
+}
 
 // ---------------------------------------------------------------------------
 // Batch generation
